@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MS3 VR TV - Multi Video 360</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
@@ -29,11 +29,6 @@
             letter-spacing: 2px;
             box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
             transition: all 0.3s;
-        }
-
-        .vr-button:hover {
-            background: rgba(0, 255, 255, 0.3);
-            box-shadow: 0 0 25px rgba(0, 255, 255, 0.8);
         }
 
         #hint {
@@ -68,29 +63,19 @@
         let programScreens = [];
         let letterMeshes = [];
         
-        // Videos y Texturas
         let activeVideo = null;
         let v1, v2, v3, v4, v5, v6;
         let t1, t2, t3, t4, t5, t6;
         let videoSphere;
 
-        // URLs de los videos
+        // --- CONFIGURACIÓN DE VIDEOS ---
+        // Asegúrate de que los archivos estén subidos a GitHub con estos nombres exactos
         const url1 = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-        const url2 = "uploaded:WhatsApp Video 2026-03-05 at 4.09.06 PM.mp4";
+        const url2 = "video2.mp4"; // Cambia el de WhatsApp a este nombre
         const url3 = "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4";
-        const url4 = "otro_video_generico.mp4"; 
-        const url5 = "https://drive.google.com/file/d/1B6jOCpbZKj6DTY3Zif8QeGwafPlYkqM4/view?usp=drive_link";
-        
-        // VIDEO DEL LINK DE WETRANSFER (Asegúrate de que el nombre del archivo descargado coincida)
-        const url6 = "video_vr_wetransfer.mp4"; 
-
-        // UI Variables
-        let crosshair3D, loadingRing3D;
-        let hasGyro = false;
-        let deviceQuaternion = new THREE.Quaternion();
-        let lon = 0, lat = 0;
-        let onPointerDownPointerX = 0, onPointerDownPointerY = 0;
-        let onPointerDownLon = 0, onPointerDownLat = 0;
+        const url4 = "otro_video.mp4"; 
+        const url5 = "https://docs.google.com/uc?export=download&id=1B6jOCpbZKj6DTY3Zif8QeGwafPlYkqM4";
+        const url6 = "video6.mp4"; // Tu video 360 de WeTransfer cámbialo a este nombre
 
         window.onload = function() {
             init();
@@ -98,6 +83,8 @@
             animate();
             
             document.getElementById('btn-vr').onclick = function() {
+                // Desbloqueo manual para iOS
+                [v1,v2,v3,v4,v5,v6].forEach(v => { v.play(); v.pause(); });
                 toggleSplitScreen();
                 requestGyroPermission();
             };
@@ -125,7 +112,8 @@
             v.crossOrigin = "anonymous";
             v.loop = true;
             v.muted = true;
-            v.playsInline = true;
+            v.setAttribute('playsinline', '');
+            v.setAttribute('webkit-playsinline', '');
             v.load();
             return v;
         }
@@ -145,22 +133,22 @@
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.body.appendChild(renderer.domElement);
 
             const starGeo = new THREE.BufferGeometry();
             const starVerts = [];
-            for (let i = 0; i < 15000; i++) starVerts.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
+            for (let i = 0; i < 8000; i++) starVerts.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3 }));
+            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 }));
             scene.add(starField);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
             create3DUI();
             createMS3Logo();
             
             startButton = createFuturisticButton("COMENZAR", 0x00ffff, { x: 0, y: -1.5, z: -5 }, "btn_start");
-            backButton = createFuturisticButton("SALIR VIDEO", 0xff0055, { x: 0, y: -2.5, z: -4.5 }, "btn_back");
+            backButton = createFuturisticButton("SALIR", 0xff0055, { x: 0, y: -2.5, z: -4.5 }, "btn_back");
             backButton.visible = false;
 
             document.addEventListener('pointerdown', onPointerDown);
@@ -170,7 +158,7 @@
 
         function createFuturisticButton(text, neonColor, pos, name) {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 0.15), new THREE.MeshPhongMaterial({ color: 0x000a1a, transparent: true, opacity: 0.7, emissive: neonColor, emissiveIntensity: 0.1 }));
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 0.15), new THREE.MeshPhongMaterial({ color: 0x000a1a, transparent: true, opacity: 0.7, emissive: neonColor, emissiveIntensity: 0.2 }));
             group.add(body);
             group.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: neonColor })));
 
@@ -224,7 +212,7 @@
                     else if (parent.name === "screen_v3") enterVideoMode(v3, t3);
                     else if (parent.name === "screen_v4") enterVideoMode(v4, t4);
                     else if (parent.name === "screen_v5") enterVideoMode(v5, t5);
-                    else if (parent.name === "screen_v6") enterVideoMode(v6, t6); // Video de VR Link
+                    else if (parent.name === "screen_v6") enterVideoMode(v6, t6);
                     hoverTimer = 0;
                 }
             } else {
@@ -243,7 +231,7 @@
             backButton.visible = true;
             programScreens.forEach(s => s.visible = false);
             activeVideo.muted = false;
-            activeVideo.play().catch(e => console.log("Video no disponible o requiere descarga manual"));
+            activeVideo.play();
             let op = 0;
             const fadeIn = () => { if(op < 1) { op += 0.05; videoSphere.material.opacity = op; requestAnimationFrame(fadeIn); } };
             fadeIn();
@@ -267,7 +255,7 @@
         }
 
         function startProduction() {
-            const count = 10;
+            const count = 6;
             for(let i=0; i<count; i++) {
                 const a = (i / count) * Math.PI * 2;
                 const r = 7;
@@ -278,12 +266,7 @@
                 else if (i === 2) { mat = new THREE.MeshBasicMaterial({ map: t3 }); name = "screen_v3"; }
                 else if (i === 3) { mat = new THREE.MeshBasicMaterial({ map: t4 }); name = "screen_v4"; }
                 else if (i === 4) { mat = new THREE.MeshBasicMaterial({ map: t5 }); name = "screen_v5"; }
-                else if (i === 5) { 
-                    // PANTALLA ESPECIAL PARA TU VIDEO VR
-                    mat = new THREE.MeshBasicMaterial({ map: t6 }); 
-                    name = "screen_v6"; 
-                }
-                else { mat = new THREE.MeshPhongMaterial({ color: 0x001122, emissive: 0x00ffff, emissiveIntensity: 0.1 }); }
+                else if (i === 5) { mat = new THREE.MeshBasicMaterial({ map: t6 }); name = "screen_v6"; }
 
                 const s = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.3), mat);
                 s.position.set(Math.cos(a)*r, 0.5, Math.sin(a)*r);
