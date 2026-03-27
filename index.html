@@ -3,12 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>MS3 VR TV - Panel Esférico</title>
+    <title>MS3 VR - Avatar LUX & Games</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js" type="module"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js" type="module"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js" type="module"></script>
     <style>
         body { 
             margin: 0; 
@@ -61,7 +57,7 @@
 </head>
 <body>
 
-    <div id="hint">SISTEMA MS3 - CONECTANDO...</div>
+    <div id="hint">SISTEMA MS3 - INICIALIZANDO NÚCLEO...</div>
     
     <div id="vr-toggle-ui">
         <button class="cyber-button" id="btn-vr-mode">MODO VR (DIVIDIR)</button>
@@ -72,13 +68,19 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ms3-vr-app';
+        // Manejo de errores para GitHub: Si no hay config, el app sigue corriendo sin Firebase
+        let db = null, auth = null, appId = 'ms3-fallback';
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'ms3-vr-app';
+            }
+        } catch(e) { console.warn("Firebase no configurado (Modo Local)"); }
 
-        let scene, camera, renderer, starField, logoGroup, startBtn3D, resetBtn3D, gamesBtn3D;
+        let scene, camera, renderer, starField, logoGroup, startBtn3D, resetBtn3D, gamesBtn3D, avatarBtn3D;
         let isSplitScreen = false, hasGyro = false, currentView = "HOME"; 
         let raycaster = new THREE.Raycaster();
         let interactableObjects = [];
@@ -86,50 +88,64 @@
         let programScreens = [], gameScreens = [];
         let currentUser = null;
         
-        let mouseX = 0, mouseY = 0;
-        let targetRotationX = 0, targetRotationY = 0;
-        
+        let mouseX = 0, mouseY = 0, targetRotationX = 0, targetRotationY = 0;
         let deviceQuaternion = new THREE.Quaternion();
         let worldQuaternion = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
-        let activeVideo = null, vSphere, gameContainer;
+        // LUX Avatar
+        let luxGroup, luxParts = { head: null, body: null };
+        let luxSettings = { color: 0x00ffff };
+
+        let activeVideo = null, vSphere;
         let videos = [], textures = [];
         const videoUrls = [
             "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
             "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-            "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-            "https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
-        ];
-
-        let gameTextures = [];
-        const gameData = [
-            { title: "ORBITAL SHOOTER", color1: "#ff00ff", color2: "#4400ff", id: 0 },
-            { title: "SPACE CATCHER", color1: "#00ffff", color2: "#0044ff", id: 1 },
-            { title: "NEON RUNNER", color1: "#ffff00", color2: "#ff4400", id: 2 },
-            { title: "VORTEX RACER", color1: "#00ff00", color2: "#004400", id: 3 },
-            { title: "CYBER QUEST", color1: "#ff0000", color2: "#440000", id: 4 },
-            { title: "GALAXY DEFENDER", color1: "#ffffff", color2: "#444444", id: 5 }
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
         ];
 
         let crosshair, loadingRing;
 
         async function initAuth() {
+            if (!auth) return;
             try { await signInAnonymously(auth); } catch (e) { console.error("Error Auth:", e); }
         }
 
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                currentUser = user;
-                document.getElementById('hint').innerText = "SISTEMA MS3 - IDENTIDAD VERIFICADA";
-            }
-        });
+        if (auth) {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    currentUser = user;
+                    document.getElementById('hint').innerText = "MS3 - CONECTADO";
+                    loadUserAvatar();
+                }
+            });
+        }
+
+        async function loadUserAvatar() {
+            if (!db || !currentUser) return;
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'lux_avatar');
+                const snap = await getDoc(docRef);
+                if (snap.exists()) {
+                    luxSettings = snap.data();
+                    applyAvatarColors();
+                }
+            } catch(e) {}
+        }
+
+        async function saveUserAvatar() {
+            if (!db || !currentUser) return;
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'lux_avatar');
+                await setDoc(docRef, luxSettings);
+                document.getElementById('hint').innerText = "AVATAR LUX GUARDADO EN LA NUBE";
+            } catch(e) {}
+        }
 
         window.onload = () => {
             initAuth();
             init();
             setupMedia();
-            createGameTextures();
             animate();
             
             const onFirstInteraction = () => {
@@ -139,52 +155,20 @@
             };
             window.addEventListener('touchstart', onFirstInteraction);
             window.addEventListener('mousedown', onFirstInteraction);
-            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mousemove', (e) => {
+                if (!hasGyro) {
+                    mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                    mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+                    targetRotationY = mouseX * 0.8; 
+                    targetRotationX = mouseY * 0.4; 
+                }
+            });
 
             document.getElementById('btn-vr-mode').onclick = (e) => {
                 e.stopPropagation();
                 toggleVR();
             };
         };
-
-        function createGameTextures() {
-            gameData.forEach(game => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 512; canvas.height = 256;
-                const ctx = canvas.getContext('2d');
-                const grad = ctx.createLinearGradient(0, 0, 512, 256);
-                grad.addColorStop(0, game.color1);
-                grad.addColorStop(1, game.color2);
-                ctx.fillStyle = grad; ctx.fillRect(0, 0, 512, 256);
-                ctx.strokeStyle = "rgba(255,255,255,0.2)";
-                ctx.lineWidth = 2;
-                for(let i=0; i<512; i+=40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke(); }
-                ctx.fillStyle = "white"; ctx.font = "Bold 40px Orbitron"; ctx.textAlign = "center";
-                ctx.fillText(game.title, 256, 140);
-                gameTextures.push(new THREE.CanvasTexture(canvas));
-            });
-        }
-
-        async function startSystem() {
-            videos.forEach(v => { v.play().then(() => v.pause()).catch(() => {}); });
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const response = await DeviceOrientationEvent.requestPermission();
-                    if (response === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, true);
-                } catch (e) {}
-            } else {
-                window.addEventListener('deviceorientation', onDeviceOrientation, true);
-            }
-        }
-
-        function onMouseMove(event) {
-            if (!hasGyro) {
-                mouseX = (event.clientX / window.innerWidth) * 2 - 1;
-                mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
-                targetRotationY = mouseX * Math.PI * 0.7; 
-                targetRotationX = mouseY * Math.PI * 0.35; 
-            }
-        }
 
         function init() {
             scene = new THREE.Scene();
@@ -196,132 +180,129 @@
 
             const starGeo = new THREE.BufferGeometry();
             const starPos = [];
-            for (let i = 0; i < 10000; i++) starPos.push((Math.random()-0.5)*1500, (Math.random()-0.5)*1500, (Math.random()-0.5)*1500);
+            for (let i = 0; i < 6000; i++) starPos.push((Math.random()-0.5)*1200, (Math.random()-0.5)*1200, (Math.random()-0.5)*1200);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x00ffff, size: 0.4, transparent: true, opacity: 0.6 }));
+            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x00ffff, size: 0.5, transparent: true, opacity: 0.6 }));
             scene.add(starField);
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-            gameContainer = new THREE.Group();
-            scene.add(gameContainer);
             
             create3DUI();
             create3DWordLogo();
             createStartButton();
             createLowerControls();
+            createLuxAvatar();
+            
             window.addEventListener('resize', onWindowResize);
+            document.getElementById('hint').innerText = "LISTO PARA INICIAR";
         }
 
-        function create3DWordLogo() {
-            logoGroup = new THREE.Group();
-            const loader = new THREE.FontLoader();
-            loader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (font) => {
-                const textGeo = new THREE.TextGeometry("MS3", {
-                    font: font, size: 2.8, height: 1.2, curveSegments: 12,
-                    bevelEnabled: true, bevelThickness: 0.2, bevelSize: 0.1
-                });
-                textGeo.center();
-                const bodyMat = new THREE.MeshPhongMaterial({ color: 0x0a0a0a, emissive: 0x004444, shininess: 100 });
-                const mesh = new THREE.Mesh(textGeo, bodyMat);
-                const edges = new THREE.LineSegments(new THREE.EdgesGeometry(textGeo), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 }));
-                logoGroup.add(mesh, edges);
+        function createLuxAvatar() {
+            luxGroup = new THREE.Group();
+            const bodyGeo = new THREE.IcosahedronGeometry(1.5, 0);
+            const bodyMat = new THREE.MeshPhongMaterial({ color: 0x004444, wireframe: true });
+            luxParts.body = new THREE.Mesh(bodyGeo, bodyMat);
+            
+            const headGeo = new THREE.SphereGeometry(0.7, 32, 32);
+            const headMat = new THREE.MeshPhongMaterial({ color: luxSettings.color, emissive: luxSettings.color, emissiveIntensity: 0.5 });
+            luxParts.head = new THREE.Mesh(headGeo, headMat);
+            luxParts.head.position.y = 1.8;
+
+            luxGroup.add(luxParts.body, luxParts.head);
+            luxGroup.position.set(0, 0, -15);
+            luxGroup.visible = false;
+            scene.add(luxGroup);
+
+            const palette = [0x00ffff, 0xff00ff, 0xffff00, 0x00ff00, 0xff4400, 0xffffff];
+            palette.forEach((col, i) => {
+                const orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), new THREE.MeshPhongMaterial({ color: col, emissive: col, emissiveIntensity: 0.3 }));
+                const angle = (i / palette.length) * Math.PI * 2;
+                orb.position.set(Math.cos(angle) * 5, Math.sin(angle) * 3 + 1, 0);
+                orb.userData = { isColorPicker: true, color: col };
+                luxGroup.add(orb);
             });
-            logoGroup.position.set(0, 2, -12);
-            scene.add(logoGroup);
+        }
+
+        function applyAvatarColors() {
+            if (luxParts.head) {
+                luxParts.head.material.color.setHex(luxSettings.color);
+                luxParts.head.material.emissive.setHex(luxSettings.color);
+            }
+            if (luxParts.body) luxParts.body.material.color.setHex(luxSettings.color);
         }
 
         function createStartButton() {
             const group = new THREE.Group();
             const body = new THREE.Mesh(new THREE.BoxGeometry(6, 1.6, 0.5), new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.9 }));
-            const edges = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 3 }));
+            const edges = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff }));
+            
             const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
             canvas.width = 512; canvas.height = 128;
-            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 70px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 60px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.fillText("COMENZAR", 256, 64);
-            const txt = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+            
+            const txt = new THREE.Mesh(new THREE.PlaneGeometry(5, 1.2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
             txt.position.z = 0.3;
             group.add(body, edges, txt);
             group.position.set(0, -3.5, -11);
-            group.name = "btn_start";
             startBtn3D = group;
             scene.add(group);
             interactableObjects.push(body);
             body.userData.isStart = true;
         }
 
-        function updateLowerButtonText(button, text) {
-            const txtMesh = button.getObjectByName("text_mesh");
-            if (!txtMesh) return;
+        function updateBtnText(btn, text) {
+            const txtMesh = btn.getObjectByName("text_mesh");
             const canvas = txtMesh.material.map.image;
             const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 80px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillText(text, 512, 128);
+            ctx.clearRect(0,0,512,128);
+            ctx.fillStyle = "#0ff"; ctx.font = "Bold 40px Orbitron"; ctx.textAlign = "center"; ctx.fillText(text, 256, 75);
             txtMesh.material.map.needsUpdate = true;
         }
 
         function createLowerControls() {
-            const shape = new THREE.Shape();
-            shape.moveTo(-5, -1.2); shape.lineTo(5, -1.2); shape.lineTo(4, 1.2); shape.lineTo(-4, 1.2); shape.lineTo(-5, -1.2);
-            const geo = new THREE.ShapeGeometry(shape);
+            const geo = new THREE.BoxGeometry(4, 1.2, 0.2);
+            const createBtn = (x, color, type) => {
+                const group = new THREE.Group();
+                const body = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.8, emissive: color, emissiveIntensity: 0.1 }));
+                const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: color }));
+                const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+                const txt = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+                txt.position.z = 0.15; txt.name = "text_mesh";
+                group.add(body, edges, txt);
+                group.position.set(x, -18, -12);
+                group.rotation.x = -Math.PI/4;
+                group.visible = false;
+                group.userData = { [type]: true };
+                scene.add(group);
+                interactableObjects.push(body);
+                body.userData = group.userData;
+                return group;
+            };
 
-            const groupReset = new THREE.Group();
-            const bodyReset = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.85, emissive: 0x003333 }));
-            const edgesReset = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 4 }));
-            const canvasR = document.createElement('canvas'); canvasR.width = 1024; canvasR.height = 256;
-            const txtR = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvasR), transparent: true }));
-            txtR.position.z = 0.1; txtR.name = "text_mesh";
-            groupReset.add(bodyReset, edgesReset, txtR);
-            groupReset.position.set(-5, -18, -12);
-            groupReset.rotation.x = -Math.PI / 4; 
-            groupReset.visible = false;
-            resetBtn3D = groupReset;
-            scene.add(groupReset);
-            bodyReset.userData.isReset = true;
-            updateLowerButtonText(groupReset, "VOLVER AL INICIO");
-
-            const groupGames = new THREE.Group();
-            const bodyGames = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.85, emissive: 0x220033 }));
-            const edgesGames = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0xff00ff, linewidth: 4 }));
-            const canvasG = document.createElement('canvas'); canvasG.width = 1024; canvasG.height = 256;
-            const txtG = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvasG), transparent: true }));
-            txtG.position.z = 0.1; txtG.name = "text_mesh";
-            groupGames.add(bodyGames, edgesGames, txtG);
-            groupGames.position.set(5, -18, -12);
-            groupGames.rotation.x = -Math.PI / 4; 
-            groupGames.visible = false;
-            gamesBtn3D = groupGames;
-            scene.add(groupGames);
-            bodyGames.userData.isGames = true;
-            updateLowerButtonText(groupGames, "JUEGOS");
+            resetBtn3D = createBtn(-5, 0x00ffff, "isReset"); updateBtnText(resetBtn3D, "INICIO");
+            gamesBtn3D = createBtn(0, 0xff00ff, "isGames"); updateBtnText(gamesBtn3D, "JUEGOS");
+            avatarBtn3D = createBtn(5, 0xffff00, "isAvatar"); updateBtnText(avatarBtn3D, "AVATAR LUX");
         }
 
-        function setupMedia() {
-            videoUrls.forEach(url => {
-                const v = document.createElement('video');
-                v.src = url; v.crossOrigin = "anonymous"; v.loop = true; v.muted = true; v.playsInline = true;
-                v.load(); videos.push(v); textures.push(new THREE.VideoTexture(v));
+        function create3DWordLogo() {
+            logoGroup = new THREE.Group();
+            const loader = new THREE.FontLoader();
+            loader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (font) => {
+                const textGeo = new THREE.TextGeometry("MS3", { font: font, size: 2.8, height: 1.2 });
+                textGeo.center();
+                const mesh = new THREE.Mesh(textGeo, new THREE.MeshPhongMaterial({ color: 0x00ffff, emissive: 0x004444 }));
+                logoGroup.add(mesh);
             });
-            const geo = new THREE.SphereGeometry(35, 60, 40);
-            geo.scale(-1, 1, 1);
-            vSphere = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, side: THREE.BackSide }));
-            vSphere.visible = false;
-            scene.add(vSphere);
+            logoGroup.position.set(0, 2, -12);
+            scene.add(logoGroup);
         }
 
         function create3DUI() {
             const group = new THREE.Group();
-            // Cursor central (Torus)
-            crosshair = new THREE.Mesh(
-                new THREE.TorusGeometry(0.015, 0.002, 8, 32), 
-                new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 })
-            );
-            // Aro de carga
-            loadingRing = new THREE.Mesh(
-                new THREE.TorusGeometry(0.025, 0.003, 8, 32), 
-                new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0 })
-            );
+            crosshair = new THREE.Mesh(new THREE.TorusGeometry(0.015, 0.002, 8, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 }));
+            loadingRing = new THREE.Mesh(new THREE.TorusGeometry(0.025, 0.003, 8, 32), new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0 }));
             group.add(crosshair, loadingRing);
             group.position.z = -1;
             camera.add(group);
@@ -330,153 +311,84 @@
 
         function handleInteractions() {
             raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
-            const hits = raycaster.intersectObjects(interactableObjects);
+            const hits = raycaster.intersectObjects([...interactableObjects, ...luxGroup.children]);
             
             if (hits.length > 0) {
                 const hit = hits[0].object;
-                if (hoveredObject !== hit) { 
-                    hoveredObject = hit; 
-                    hoverTimer = 0; 
-                }
-                
+                if (hoveredObject !== hit) { hoveredObject = hit; hoverTimer = 0; }
                 hoverTimer += 1/60;
                 const p = Math.min(hoverTimer / 1.2, 1);
-                
-                // Efecto de crecimiento del cursor (Crosshair)
-                const targetScale = 1.8; // Escala máxima al apuntar
-                const currentScale = 1 + (p * (targetScale - 1));
-                crosshair.scale.set(currentScale, currentScale, 1);
-                crosshair.material.color.setHex(0xffffff); // Brillo blanco al apuntar
-                
-                // Aro de carga sigue creciendo
+                crosshair.scale.set(1 + p, 1 + p, 1);
                 loadingRing.scale.set(p * 1.5, p * 1.5, 1);
                 loadingRing.material.opacity = 1;
 
                 if (p >= 1) {
-                    if (hit.userData.isStart) executeStart();
-                    else if (hit.userData.isReset) {
-                        if (currentView === "PROGRAMS") executeResetToHome();
-                        else if (currentView === "GAMES") showPrograms();
+                    if (hit.userData.isStart) enterPrograms();
+                    else if (hit.userData.isReset) goHome();
+                    else if (hit.userData.isGames) goGames();
+                    else if (hit.userData.isAvatar) goAvatar();
+                    else if (hit.userData.isColorPicker) {
+                        luxSettings.color = hit.userData.color;
+                        applyAvatarColors();
+                        saveUserAvatar();
                     }
-                    else if (hit.userData.isGames) showGames();
-                    else if (hit.userData.isBack) exitMedia();
-                    else if (hit.userData.gameId !== undefined) playVRGame(hit.userData.gameId);
                     else if (hit.userData.videoId !== undefined) playVideo(hit.userData.videoId);
-                    
+                    else if (hit.userData.isBack) exitMedia();
                     hoverTimer = 0;
-                    loadingRing.material.opacity = 0;
-                    crosshair.scale.set(1, 1, 1);
                 }
             } else {
-                hoveredObject = null;
-                hoverTimer = 0;
+                hoveredObject = null; hoverTimer = 0;
                 loadingRing.material.opacity = 0;
-                
-                // Retorno suave del cursor a su estado original
                 crosshair.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-                crosshair.material.color.lerp(new THREE.Color(0x00ffff), 0.1);
             }
         }
 
-        function executeStart() {
+        function enterPrograms() {
             currentView = "PROGRAMS";
             startBtn3D.visible = false;
-            resetBtn3D.visible = true;
-            gamesBtn3D.visible = true;
-            logoGroup.position.set(0, 18, -25);
-            logoGroup.scale.set(0.7, 0.7, 0.7);
-            showPrograms();
+            logoGroup.position.set(0, 15, -20);
+            resetBtn3D.visible = true; gamesBtn3D.visible = true; avatarBtn3D.visible = true;
+            showProgramGrid();
         }
 
-        function executeResetToHome() {
-            currentView = "HOME";
-            resetBtn3D.visible = false; gamesBtn3D.visible = false;
-            startBtn3D.visible = true;
-            clearContent();
+        function goHome() {
+            currentView = "HOME"; clearGrid();
+            resetBtn3D.visible = false; gamesBtn3D.visible = false; avatarBtn3D.visible = false;
+            startBtn3D.visible = true; luxGroup.visible = false;
             logoGroup.position.set(0, 2, -12);
-            logoGroup.scale.set(1, 1, 1);
-            interactableObjects = [startBtn3D.children[0]];
-            document.getElementById('hint').innerText = "SISTEMA MS3 - VOLVIENDO AL INICIO";
         }
 
-        function clearContent() {
+        function goGames() {
+            currentView = "GAMES"; clearGrid();
+            luxGroup.visible = false;
+            document.getElementById('hint').innerText = "SECCIÓN JUEGOS";
+        }
+
+        function goAvatar() {
+            currentView = "AVATAR"; clearGrid();
+            luxGroup.visible = true;
+            document.getElementById('hint').innerText = "PERSONALIZADOR LUX - MIRA LOS ORBES";
+        }
+
+        function clearGrid() {
             programScreens.forEach(s => scene.remove(s));
-            gameScreens.forEach(s => scene.remove(s));
-            programScreens = []; gameScreens = [];
+            programScreens = [];
         }
 
-        function showPrograms() {
-            currentView = "PROGRAMS";
-            clearContent();
-            resetBtn3D.visible = true; gamesBtn3D.visible = true;
-            resetBtn3D.position.set(-5, -18, -12);
-            gamesBtn3D.position.set(5, -18, -12);
-            updateLowerButtonText(resetBtn3D, "VOLVER AL INICIO");
-            updateLowerButtonText(gamesBtn3D, "JUEGOS");
-            
-            const countPerRow = 12, rows = [-4, 4], radius = 25;
-            interactableObjects = [resetBtn3D.children[0], gamesBtn3D.children[0]];
-            
-            rows.forEach(yPos => {
-                for(let i=0; i<countPerRow; i++) {
-                    const angle = (i / countPerRow) * Math.PI * 2;
-                    const group = new THREE.Group();
-                    const geometry = new THREE.PlaneGeometry(10, 5.6); 
-                    const material = new THREE.MeshBasicMaterial({ map: textures[i % textures.length] });
-                    const mesh = new THREE.Mesh(geometry, material);
-                    const frame = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x00ffff }));
-                    group.add(mesh, frame);
-                    group.position.set(Math.cos(angle) * radius, yPos, Math.sin(angle) * radius);
-                    group.lookAt(0, yPos, 0);
-                    scene.add(group);
-                    programScreens.push(group);
-                    mesh.userData.videoId = i;
-                    interactableObjects.push(mesh);
-                }
-            });
-            document.getElementById('hint').innerText = "SECCIÓN PROGRAMAS - EXPLORA LOS VIDEOS";
-        }
-
-        function showGames() {
-            currentView = "GAMES";
-            clearContent();
-            gamesBtn3D.visible = false;
-            resetBtn3D.visible = true;
-            resetBtn3D.position.set(0, -18, -12);
-            updateLowerButtonText(resetBtn3D, "VOLVER A PROGRAMAS");
-            
-            const countPerRow = 12, radius = 22;
-            interactableObjects = [resetBtn3D.children[0]];
-            
-            for(let i=0; i<countPerRow; i++) {
-                const angle = (i / countPerRow) * Math.PI * 2;
-                const group = new THREE.Group();
-                const geometry = new THREE.PlaneGeometry(9, 5); 
-                const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: gameTextures[i % gameTextures.length] }));
-                const frame = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0xff00ff }));
-                group.add(mesh, frame);
-                group.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-                group.lookAt(0, 0, 0);
-                scene.add(group);
-                gameScreens.push(group);
-                mesh.userData.gameId = i;
+        function showProgramGrid() {
+            currentView = "PROGRAMS"; clearGrid();
+            luxGroup.visible = false;
+            const count = 6, radius = 18;
+            for(let i=0; i<count; i++) {
+                const angle = (i / count) * Math.PI * 2;
+                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(8, 4.5), new THREE.MeshBasicMaterial({ map: textures[i % textures.length] }));
+                mesh.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+                mesh.lookAt(0,0,0);
+                scene.add(mesh);
+                programScreens.push(mesh);
+                mesh.userData.videoId = i;
                 interactableObjects.push(mesh);
             }
-            document.getElementById('hint').innerText = "SECCIÓN JUEGOS - SELECCIONA TU DESAFÍO";
-        }
-
-        function playVRGame(id) {
-            currentView = "PLAYING";
-            clearContent();
-            resetBtn3D.visible = false; gamesBtn3D.visible = false; logoGroup.visible = false;
-            const env = new THREE.Mesh(new THREE.TorusKnotGeometry(45, 2, 150, 20), new THREE.MeshPhongMaterial({ color: 0x8800ff, wireframe: true }));
-            env.name = "game_env"; scene.add(env);
-            
-            const backBtn = new THREE.Mesh(new THREE.BoxGeometry(6, 1.5, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0044 }));
-            backBtn.position.set(0, -6, -14);
-            backBtn.userData.isBack = true;
-            scene.add(backBtn);
-            interactableObjects = [backBtn];
         }
 
         function playVideo(idx) {
@@ -484,41 +396,55 @@
             activeVideo = videos[idx % textures.length];
             vSphere.material.map = textures[idx % textures.length];
             vSphere.visible = true; vSphere.material.opacity = 1;
-            logoGroup.visible = false; resetBtn3D.visible = false; gamesBtn3D.visible = false;
             activeVideo.muted = false; activeVideo.play();
-            
-            const backBtn = new THREE.Mesh(new THREE.BoxGeometry(7, 1.4, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0044 }));
-            backBtn.position.set(0, -8, -18);
+            const backBtn = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0044 }));
+            backBtn.position.set(0, -6, -12);
             backBtn.userData.isBack = true;
             scene.add(backBtn);
-            interactableObjects = [backBtn];
+            interactableObjects.push(backBtn);
         }
 
         function exitMedia() {
             if (activeVideo) { activeVideo.pause(); activeVideo.muted = true; }
-            vSphere.visible = false; logoGroup.visible = true;
-            const env = scene.getObjectByName("game_env"); if(env) scene.remove(env);
+            vSphere.visible = false;
             interactableObjects.forEach(obj => { if(obj.userData.isBack) scene.remove(obj); });
-            if (currentView === "PLAYING") showGames(); else showPrograms();
+            showProgramGrid();
         }
 
-        function onDeviceOrientation(e) {
-            if (e.alpha !== null) {
-                hasGyro = true;
-                const a = THREE.MathUtils.degToRad(e.alpha);
-                const b = THREE.MathUtils.degToRad(e.beta);
-                const g = THREE.MathUtils.degToRad(e.gamma);
-                deviceQuaternion.setFromEuler(new THREE.Euler(b, a, -g, 'YXZ'));
-                deviceQuaternion.multiply(worldQuaternion);
-            }
+        function setupMedia() {
+            videoUrls.forEach(url => {
+                const v = document.createElement('video');
+                v.src = url; v.crossOrigin = "anonymous"; v.loop = true; v.muted = true; v.playsInline = true;
+                v.load(); videos.push(v); textures.push(new THREE.VideoTexture(v));
+            });
+            vSphere = new THREE.Mesh(new THREE.SphereGeometry(40, 60, 40), new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, opacity: 0 }));
+            vSphere.scale.set(-1, 1, 1);
+            vSphere.visible = false;
+            scene.add(vSphere);
         }
-
-        function toggleVR() { isSplitScreen = !isSplitScreen; onWindowResize(); }
 
         function onWindowResize() {
             const aspect = isSplitScreen ? (window.innerWidth/2)/window.innerHeight : window.innerWidth/window.innerHeight;
             camera.aspect = aspect; camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function toggleVR() { isSplitScreen = !isSplitScreen; onWindowResize(); }
+
+        function startSystem() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(r => {
+                    if (r === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, true);
+                });
+            } else { window.addEventListener('deviceorientation', onDeviceOrientation, true); }
+        }
+
+        function onDeviceOrientation(e) {
+            if (e.alpha !== null) {
+                hasGyro = true;
+                const a = THREE.MathUtils.degToRad(e.alpha), b = THREE.MathUtils.degToRad(e.beta), g = THREE.MathUtils.degToRad(e.gamma);
+                deviceQuaternion.setFromEuler(new THREE.Euler(b, a, -g, 'YXZ')).multiply(worldQuaternion);
+            }
         }
 
         function animate() {
@@ -528,10 +454,12 @@
                 camera.rotation.y += (targetRotationY - camera.rotation.y) * 0.05;
                 camera.rotation.x += (targetRotationX - camera.rotation.x) * 0.05;
             }
-            if (logoGroup && logoGroup.visible) logoGroup.rotation.y += 0.015; 
-            starField.rotation.y += 0.00015;
+            if (logoGroup) logoGroup.rotation.y += 0.01;
+            if (luxGroup && luxGroup.visible) {
+                luxGroup.rotation.y += 0.005;
+                luxParts.head.position.y = 1.8 + Math.sin(Date.now() * 0.002) * 0.1;
+            }
             handleInteractions();
-
             if (isSplitScreen) {
                 const w = window.innerWidth / 2, h = window.innerHeight;
                 renderer.setScissorTest(true);
