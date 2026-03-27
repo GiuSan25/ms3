@@ -2,11 +2,18 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MS3 VR TV - Bloque 3D Neón</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>MS3 VR - Universal Experience</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Orbitron', sans-serif; touch-action: none; }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; 
+            font-family: 'Orbitron', sans-serif; 
+            touch-action: none; 
+            -webkit-tap-highlight-color: transparent;
+        }
         canvas { display: block; }
         
         #vr-toggle-ui {
@@ -31,9 +38,20 @@
             transition: all 0.3s;
         }
 
-        .cyber-button:hover {
-            background: rgba(0, 255, 255, 0.3);
-            box-shadow: 0 0 25px #0ff;
+        #overlay-msg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #0ff;
+            text-align: center;
+            z-index: 2000;
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border: 1px solid #0ff;
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 2px;
         }
 
         #hint {
@@ -42,17 +60,19 @@
             width: 100%;
             text-align: center;
             color: #0ff;
-            font-size: 12px;
+            font-size: 10px;
             pointer-events: none;
-            letter-spacing: 3px;
+            letter-spacing: 2px;
             text-shadow: 0 0 5px #0ff;
+            opacity: 0.7;
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <div id="hint">MS3 SYSTEM ONLINE - CONTROL POR MOVIMIENTO ACTIVO</div>
+    <div id="hint">SISTEMA MS3 - CALIBRANDO SENSORES</div>
+    <div id="overlay-msg">TOCA PARA INICIAR<br><small style="font-size: 10px; opacity: 0.6;">(Requerido para Sensores/Audio)</small></div>
     
     <div id="vr-toggle-ui">
         <button class="cyber-button" id="btn-vr-mode">PARTIZAR / MODO VR</button>
@@ -66,20 +86,26 @@
         let hoverTimer = 0, hoveredObject = null;
         let programScreens = [];
         
-        // Sensores
+        // Sensores - Manejo universal
         let deviceQuaternion = new THREE.Quaternion();
         let worldQuaternion = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
-        // Media
+        // Media - Ampliado para rodear al usuario
         let activeVideo = null, vSphere;
         let videos = [], textures = [];
         const urls = [
             "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            "uploaded:WhatsApp Video 2026-03-05 at 4.09.06 PM.mp4",
             "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
             "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
             "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
         ];
 
         // UI 3D
@@ -90,23 +116,33 @@
             setupMedia();
             animate();
             
-            window.addEventListener('click', startAudioAndSensors, { once: true });
+            // Un solo toque activa todo: Audio, Video y Sensores (Obligatorio en móviles modernos)
+            window.addEventListener('touchstart', startSystem, { once: true });
+            window.addEventListener('mousedown', startSystem, { once: true });
+
             document.getElementById('btn-vr-mode').onclick = (e) => {
                 e.stopPropagation();
                 toggleVR();
             };
         };
 
-        function startAudioAndSensors() {
-            videos.forEach(v => v.play().then(() => v.pause()).catch(() => {}));
-            requestSensors();
-        }
+        async function startSystem() {
+            document.getElementById('overlay-msg').style.display = 'none';
+            document.getElementById('hint').innerText = "SISTEMA ACTIVO - MUEVE TU CELULAR";
+            
+            // Intentar desbloquear audio/video
+            videos.forEach(v => {
+                v.play().then(() => v.pause()).catch(() => {});
+            });
 
-        function requestSensors() {
+            // Permisos de Sensor (iOS 13+)
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission().then(res => {
-                    if (res === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, true);
-                });
+                try {
+                    const response = await DeviceOrientationEvent.requestPermission();
+                    if (response === 'granted') {
+                        window.addEventListener('deviceorientation', onDeviceOrientation, true);
+                    }
+                } catch (e) { console.error("Error sensores:", e); }
             } else {
                 window.addEventListener('deviceorientation', onDeviceOrientation, true);
             }
@@ -117,20 +153,20 @@
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.body.appendChild(renderer.domElement);
 
-            // Espacio de estrellas
+            // Fondo espacial denso
             const starGeo = new THREE.BufferGeometry();
             const starPos = [];
-            for (let i = 0; i < 9000; i++) starPos.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
+            for (let i = 0; i < 12000; i++) starPos.push((Math.random()-0.5)*1200, (Math.random()-0.5)*1200, (Math.random()-0.5)*1200);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x00ffff, size: 0.6, transparent: true, opacity: 0.8 }));
+            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x00ffff, size: 0.5, transparent: true, opacity: 0.8 }));
             scene.add(starField);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-            const p1 = new THREE.PointLight(0x00ffff, 2, 50); p1.position.set(5, 5, 5); scene.add(p1);
-            const p2 = new THREE.PointLight(0xff00ff, 2, 50); p2.position.set(-5, -5, 5); scene.add(p2);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+            const p1 = new THREE.PointLight(0x00ffff, 2, 60); p1.position.set(10, 10, 10); scene.add(p1);
+            const p2 = new THREE.PointLight(0xff00ff, 2, 60); p2.position.set(-10, -10, 10); scene.add(p2);
 
             create3DUI();
             create3DWordLogo();
@@ -139,74 +175,41 @@
             window.addEventListener('resize', onWindowResize);
         }
 
-        // Crea las letras MS3 como un bloque unido con bordes de neón
         function create3DWordLogo() {
             logoGroup = new THREE.Group();
             const loader = new THREE.FontLoader();
             loader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (font) => {
-                const textStr = "MS3";
-                const textGeo = new THREE.TextGeometry(textStr, {
-                    font: font,
-                    size: 2.5,
-                    height: 0.8, // Grosor 3D
-                    curveSegments: 12,
-                    bevelEnabled: true,
-                    bevelThickness: 0.15,
-                    bevelSize: 0.05,
-                    bevelOffset: 0,
-                    bevelSegments: 5
+                const textGeo = new THREE.TextGeometry("MS3", {
+                    font: font, size: 2.5, height: 1, curveSegments: 12,
+                    bevelEnabled: true, bevelThickness: 0.2, bevelSize: 0.1
                 });
-                
-                textGeo.center(); // Centrar toda la palabra para que rote sobre su eje medio
-
-                // Material del cuerpo (Oscuro/Metálico)
-                const bodyMat = new THREE.MeshPhongMaterial({ 
-                    color: 0x111111,
-                    emissive: 0x002222,
-                    shininess: 100,
-                    specular: 0x00ffff
-                });
-
-                // Material de los bordes (Neón)
-                const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-
+                textGeo.center();
+                const bodyMat = new THREE.MeshPhongMaterial({ color: 0x050505, emissive: 0x003333, shininess: 100 });
                 const mesh = new THREE.Mesh(textGeo, bodyMat);
-                
-                // Añadir bordes de neón para mejor definición
-                const edges = new THREE.EdgesGeometry(textGeo);
-                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 }));
-                
-                // Pequeño resplandor interno
-                const glowMesh = new THREE.Mesh(textGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.15 }));
-                glowMesh.scale.multiplyScalar(1.02);
-
-                logoGroup.add(mesh, line, glowMesh);
+                const edges = new THREE.LineSegments(new THREE.EdgesGeometry(textGeo), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 }));
+                logoGroup.add(mesh, edges);
             });
-
-            logoGroup.position.set(0, 1.5, -9);
+            logoGroup.position.set(0, 2, -10);
             scene.add(logoGroup);
         }
 
         function createStartButton() {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.2, 0.3), new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.8 }));
+            const body = new THREE.Mesh(new THREE.BoxGeometry(5, 1.4, 0.4), new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.9 }));
             const edges = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 3 }));
-            
-            // Efecto de resplandor para el botón
-            const glow = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.3, 0.1), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.1 }));
             
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = 512; canvas.height = 128;
-            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 65px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 70px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.shadowColor = "#0ff"; ctx.shadowBlur = 20;
             ctx.fillText("COMENZAR", 256, 64);
             
-            const txt = new THREE.Mesh(new THREE.PlaneGeometry(4, 0.9), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-            txt.position.z = 0.2;
+            const txt = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+            txt.position.z = 0.25;
 
-            group.add(body, edges, glow, txt);
-            group.position.set(0, -2.5, -8);
+            group.add(body, edges, txt);
+            group.position.set(0, -3, -9);
             group.name = "btn_start";
             startBtn3D = group;
             scene.add(group);
@@ -225,7 +228,7 @@
 
             const geo = new THREE.SphereGeometry(500, 60, 40);
             geo.scale(-1, 1, 1);
-            vSphere = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+            vSphere = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, side: THREE.DoubleSide }));
             vSphere.visible = false;
             scene.add(vSphere);
         }
@@ -267,30 +270,37 @@
         function executeStart() {
             appStarted = true;
             interactableObjects = [];
-            const anim = () => {
-                if (logoGroup.position.y < 40) {
-                    logoGroup.position.y += 0.5;
-                    startBtn3D.position.y -= 0.5;
-                    requestAnimationFrame(anim);
+            
+            // Animación de salida del logo/botón
+            const fadeOut = () => {
+                if (logoGroup.position.y < 50) {
+                    logoGroup.position.y += 0.8;
+                    startBtn3D.position.y -= 0.8;
+                    requestAnimationFrame(fadeOut);
                 } else {
                     logoGroup.visible = false; startBtn3D.visible = false;
                     showProduction();
                 }
             };
-            anim();
+            fadeOut();
         }
 
         function showProduction() {
-            const r = 10;
-            for(let i=0; i<6; i++) {
-                const a = (i/6) * Math.PI * 2;
+            const count = 12; // Más pantallas para rodear al usuario
+            const radius = 12;
+            for(let i=0; i<count; i++) {
+                const angle = (i/count) * Math.PI * 2;
                 const group = new THREE.Group();
-                const m = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.8), new THREE.MeshBasicMaterial({ map: textures[i] }));
-                const frame = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff }));
+                
+                // Pantallas ligeramente curvas o inclinadas hacia el usuario
+                const m = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 3.1), new THREE.MeshBasicMaterial({ map: textures[i % textures.length] }));
+                const frame = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 }));
+                
                 group.add(m, frame);
-                group.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+                group.position.set(Math.cos(angle)*radius, (i%2 === 0 ? 1 : -1.5), Math.sin(angle)*radius);
                 group.lookAt(0, 0, 0);
                 group.name = `scr_${i}`;
+                
                 scene.add(group);
                 programScreens.push(group);
                 interactableObjects.push(m);
@@ -299,15 +309,16 @@
         }
 
         function playVideo(idx) {
-            activeVideo = videos[idx];
-            vSphere.material.map = textures[idx];
+            const texIdx = idx % textures.length;
+            activeVideo = videos[texIdx];
+            vSphere.material.map = textures[texIdx];
             vSphere.visible = true;
             programScreens.forEach(s => s.visible = false);
             activeVideo.muted = false;
             activeVideo.play();
             
             if (!scene.getObjectByName("btn_back")) {
-                const back = createFuturisticButton("VOLVER", 0xff00ff, {x:0, y:-3, z:-6}, "btn_back");
+                const back = createFuturisticButton("CERRAR VIDEO", 0xff00ff, {x:0, y:-3.5, z:-7}, "btn_back");
                 scene.add(back);
             } else {
                 scene.getObjectByName("btn_back").visible = true;
@@ -315,13 +326,14 @@
             interactableObjects = [scene.getObjectByName("btn_back").children[0]];
 
             let o = 0;
-            const f = () => { if(o < 1) { o += 0.05; vSphere.material.opacity = o; requestAnimationFrame(f); } };
+            const f = () => { if(o < 1) { o += 0.08; vSphere.material.opacity = o; requestAnimationFrame(f); } };
             f();
         }
 
         function exitVideo() {
             if (activeVideo) { activeVideo.pause(); activeVideo.muted = true; }
             vSphere.visible = false;
+            vSphere.material.opacity = 0;
             scene.getObjectByName("btn_back").visible = false;
             programScreens.forEach(s => s.visible = true);
             interactableObjects = programScreens.map(s => s.children[0]);
@@ -329,13 +341,13 @@
 
         function createFuturisticButton(text, color, pos, name) {
             const group = new THREE.Group();
-            const b = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.7, 0.1), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.8 }));
+            const b = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.8, 0.1), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.8 }));
             const e = new THREE.LineSegments(new THREE.EdgesGeometry(b.geometry), new THREE.LineBasicMaterial({ color: color }));
             const c = document.createElement('canvas'); const x = c.getContext('2d');
-            c.width = 256; c.height = 64;
-            x.fillStyle = color; x.font = "Bold 30px Orbitron"; x.textAlign = "center"; x.textBaseline = "middle";
-            x.fillText(text, 128, 32);
-            const t = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
+            c.width = 512; c.height = 128;
+            x.fillStyle = color; x.font = "Bold 50px Orbitron"; x.textAlign = "center"; x.textBaseline = "middle";
+            x.fillText(text, 256, 64);
+            const t = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
             t.position.z = 0.06;
             group.add(b, e, t); group.position.set(pos.x, pos.y, pos.z); group.name = name;
             b.userData.parent = group;
@@ -366,17 +378,15 @@
         function animate() {
             requestAnimationFrame(animate);
             if (hasGyro) {
-                camera.quaternion.slerp(deviceQuaternion, 0.15);
+                camera.quaternion.slerp(deviceQuaternion, 0.2); // Slerp más rápido para respuesta inmediata
             }
+            
             if (logoGroup && logoGroup.visible) {
-                // Rotación de todo el bloque MS3 junto
                 logoGroup.rotation.y += 0.015;
-                // Efecto de flotación suave
-                logoGroup.position.y = 1.5 + Math.sin(Date.now() * 0.001) * 0.15;
+                logoGroup.position.y = 2 + Math.sin(Date.now() * 0.001) * 0.2;
             }
             
             if (startBtn3D && startBtn3D.visible) {
-                // Latido neón en el botón comenzar
                 const s = 1 + Math.sin(Date.now() * 0.003) * 0.03;
                 startBtn3D.scale.set(s, s, 1);
             }
