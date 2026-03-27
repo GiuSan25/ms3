@@ -4,18 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>MS3 VR TV - Panel Esférico</title>
-    
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#000000">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="icon.png">
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js" type="module"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js" type="module"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js" type="module"></script>
-    
     <style>
         body { 
             margin: 0; 
@@ -51,7 +44,7 @@
 
         #hint {
             position: absolute;
-            top: 40px; /* Bajado un poco para librar el notch en modo App */
+            top: 20px;
             width: 90%;
             left: 5%;
             text-align: center;
@@ -75,20 +68,10 @@
     </div>
 
     <script type="module">
-        // REGISTRO DEL SERVICE WORKER PARA INSTALACIÓN
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('MS3: Sistema PWA Activo'))
-                    .catch(err => console.log('PWA Error:', err));
-            });
-        }
-
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Configuración de Firebase (asegúrate de que __firebase_config esté definido)
         const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -329,10 +312,12 @@
 
         function create3DUI() {
             const group = new THREE.Group();
+            // Cursor central (Torus)
             crosshair = new THREE.Mesh(
                 new THREE.TorusGeometry(0.015, 0.002, 8, 32), 
                 new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 })
             );
+            // Aro de carga
             loadingRing = new THREE.Mesh(
                 new THREE.TorusGeometry(0.025, 0.003, 8, 32), 
                 new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0 })
@@ -356,11 +341,14 @@
                 
                 hoverTimer += 1/60;
                 const p = Math.min(hoverTimer / 1.2, 1);
-                const targetScale = 1.8;
+                
+                // Efecto de crecimiento del cursor (Crosshair)
+                const targetScale = 1.8; // Escala máxima al apuntar
                 const currentScale = 1 + (p * (targetScale - 1));
                 crosshair.scale.set(currentScale, currentScale, 1);
-                crosshair.material.color.setHex(0xffffff);
+                crosshair.material.color.setHex(0xffffff); // Brillo blanco al apuntar
                 
+                // Aro de carga sigue creciendo
                 loadingRing.scale.set(p * 1.5, p * 1.5, 1);
                 loadingRing.material.opacity = 1;
 
@@ -383,6 +371,8 @@
                 hoveredObject = null;
                 hoverTimer = 0;
                 loadingRing.material.opacity = 0;
+                
+                // Retorno suave del cursor a su estado original
                 crosshair.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
                 crosshair.material.color.lerp(new THREE.Color(0x00ffff), 0.1);
             }
