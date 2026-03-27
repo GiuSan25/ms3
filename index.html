@@ -7,75 +7,46 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', sans-serif; touch-action: none; }
-        canvas { display: block; }
-        
-        #ui-overlay {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            z-index: 100;
-        }
-
+        #ui-overlay { position: absolute; top: 20px; left: 20px; z-index: 100; }
         .vr-button {
-            padding: 15px 25px;
-            background: rgba(0, 255, 255, 0.1);
-            border: 2px solid #0ff;
-            color: #0ff;
-            border-radius: 10px;
-            cursor: pointer;
-            backdrop-filter: blur(10px);
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
-            transition: all 0.3s;
+            padding: 15px 25px; background: rgba(0, 255, 255, 0.1); border: 2px solid #0ff;
+            color: #0ff; border-radius: 10px; cursor: pointer; backdrop-filter: blur(10px);
+            font-weight: bold; text-transform: uppercase; letter-spacing: 2px;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5); transition: all 0.3s;
         }
-
-        #hint {
-            position: absolute;
-            bottom: 20px;
-            width: 100%;
-            text-align: center;
-            color: rgba(255,255,255,0.6);
-            font-size: 14px;
-            pointer-events: none;
-            z-index: 10;
-            text-shadow: 0 0 5px #000;
-        }
+        #hint { position: absolute; bottom: 20px; width: 100%; text-align: center; color: rgba(255,255,255,0.6); font-size: 14px; pointer-events: none; z-index: 10; text-shadow: 0 0 5px #000; }
     </style>
 </head>
 <body>
 
     <div id="ui-overlay">
-        <button class="vr-button" id="btn-vr">MODO GAFAS VR</button>
+        <button class="vr-button" id="btn-vr">ENTRAR / MODO VR</button>
     </div>
-
-    <div id="hint">Mira la pantalla del video VR para entrar en la experiencia 360</div>
+    <div id="hint">Usa el cursor para mirar o activa el modo VR</div>
 
     <script>
         let scene, camera, renderer, starField, logoGroup, startButton, backButton;
-        let isSplitScreen = false;
+        let isSplitScreen = false, hasGyro = false;
+        let lon = 0, lat = 0, phi = 0, theta = 0;
+        let onPointerDownPointerX, onPointerDownPointerY, onPointerDownLon, onPointerDownLat;
+        let deviceQuaternion = new THREE.Quaternion();
         let raycaster = new THREE.Raycaster();
         let interactableObjects = [];
-        let hoverTimer = 0;
-        let hoveredObject = null;
+        let hoverTimer = 0, hoveredObject = null;
         let appState = 'intro';
-        let programScreens = [];
-        let letterMeshes = [];
-        
-        let activeVideo = null;
+        let programScreens = [], letterMeshes = [];
+        let activeVideo = null, videoSphere;
         let v1, v2, v3, v4, v5, v6;
         let t1, t2, t3, t4, t5, t6;
-        let videoSphere;
+        let crosshair3D, loadingRing3D;
 
-        // --- CONFIGURACIÓN DE VIDEOS ---
-        // Asegúrate de que los archivos estén subidos a GitHub con estos nombres exactos
+        // URLs de video
         const url1 = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-        const url2 = "video2.mp4"; // Cambia el de WhatsApp a este nombre
+        const url2 = "video2.mp4"; 
         const url3 = "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4";
         const url4 = "otro_video.mp4"; 
-        const url5 = "https://docs.google.com/uc?export=download&id=1B6jOCpbZKj6DTY3Zif8QeGwafPlYkqM4";
-        const url6 = "video6.mp4"; // Tu video 360 de WeTransfer cámbialo a este nombre
+        const url5 = "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4";
+        const url6 = "video6.mp4";
 
         window.onload = function() {
             init();
@@ -83,12 +54,11 @@
             animate();
             
             document.getElementById('btn-vr').onclick = function() {
-                // Desbloqueo manual para iOS
-                [v1,v2,v3,v4,v5,v6].forEach(v => { v.play(); v.pause(); });
+                // Desbloqueo de video para navegadores
+                [v1, v2, v3, v4, v5, v6].forEach(v => { v.play().then(() => v.pause()).catch(() => {}); });
                 toggleSplitScreen();
                 requestGyroPermission();
             };
-            window.addEventListener('deviceorientation', onDeviceOrientation, true);
         }
 
         function setupMedia() {
@@ -101,7 +71,7 @@
             
             const sphereGeo = new THREE.SphereGeometry(500, 60, 40);
             sphereGeo.scale(-1, 1, 1);
-            videoSphere = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+            videoSphere = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, color: 0x222222 }));
             videoSphere.visible = false;
             scene.add(videoSphere);
         }
@@ -110,8 +80,7 @@
             const v = document.createElement('video');
             v.src = url;
             v.crossOrigin = "anonymous";
-            v.loop = true;
-            v.muted = true;
+            v.loop = true; v.muted = true;
             v.setAttribute('playsinline', '');
             v.setAttribute('webkit-playsinline', '');
             v.load();
@@ -123,6 +92,8 @@
                 DeviceOrientationEvent.requestPermission()
                     .then(response => { if (response == 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, true); })
                     .catch(console.error);
+            } else {
+                window.addEventListener('deviceorientation', onDeviceOrientation, true);
             }
         }
 
@@ -133,17 +104,17 @@
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
             const starGeo = new THREE.BufferGeometry();
             const starVerts = [];
-            for (let i = 0; i < 8000; i++) starVerts.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
+            for (let i = 0; i < 5000; i++) starVerts.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 }));
+            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.7 }));
             scene.add(starField);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            scene.add(new THREE.AmbientLight(0xffffff, 1));
             create3DUI();
             createMS3Logo();
             
@@ -158,14 +129,14 @@
 
         function createFuturisticButton(text, neonColor, pos, name) {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 0.15), new THREE.MeshPhongMaterial({ color: 0x000a1a, transparent: true, opacity: 0.7, emissive: neonColor, emissiveIntensity: 0.2 }));
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 0.15), new THREE.MeshPhongMaterial({ color: 0x000a1a, transparent: true, opacity: 0.8, emissive: neonColor, emissiveIntensity: 0.3 }));
             group.add(body);
             group.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: neonColor })));
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = 512; canvas.height = 128;
-            ctx.fillStyle = "white"; ctx.font = "Bold 70px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillStyle = "white"; ctx.font = "Bold 60px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.fillText(text, 256, 64);
             const textMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
             textMesh.position.z = 0.1;
@@ -182,7 +153,7 @@
         function create3DUI() {
             const uiGroup = new THREE.Group();
             crosshair3D = new THREE.Mesh(new THREE.TorusGeometry(0.015, 0.002, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }));
-            loadingRing3D = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.005, 8, 32), new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0 }));
+            loadingRing3D = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.004, 8, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0 }));
             uiGroup.add(crosshair3D, loadingRing3D);
             uiGroup.position.z = -1;
             camera.add(uiGroup);
@@ -207,17 +178,14 @@
                 if (progress >= 1) {
                     if (parent.name === "btn_start") startTransition();
                     else if (parent.name === "btn_back") exitVideoMode();
-                    else if (parent.name === "screen_v1") enterVideoMode(v1, t1);
-                    else if (parent.name === "screen_v2") enterVideoMode(v2, t2);
-                    else if (parent.name === "screen_v3") enterVideoMode(v3, t3);
-                    else if (parent.name === "screen_v4") enterVideoMode(v4, t4);
-                    else if (parent.name === "screen_v5") enterVideoMode(v5, t5);
-                    else if (parent.name === "screen_v6") enterVideoMode(v6, t6);
+                    else if (parent.name.includes("screen_v")) {
+                        const vMap = { screen_v1: [v1,t1], screen_v2: [v2,t2], screen_v3: [v3,t3], screen_v4: [v4,t4], screen_v5: [v5,t5], screen_v6: [v6,t6] };
+                        enterVideoMode(vMap[parent.name][0], vMap[parent.name][1]);
+                    }
                     hoverTimer = 0;
                 }
             } else {
-                hoveredObject = null;
-                hoverTimer = 0;
+                hoveredObject = null; hoverTimer = 0;
                 loadingRing3D.material.opacity = 0;
             }
         }
@@ -231,7 +199,7 @@
             backButton.visible = true;
             programScreens.forEach(s => s.visible = false);
             activeVideo.muted = false;
-            activeVideo.play();
+            activeVideo.play().catch(e => console.log("Error play:", e));
             let op = 0;
             const fadeIn = () => { if(op < 1) { op += 0.05; videoSphere.material.opacity = op; requestAnimationFrame(fadeIn); } };
             fadeIn();
@@ -256,22 +224,14 @@
 
         function startProduction() {
             const count = 6;
+            const textures = [t1, t2, t3, t4, t5, t6];
             for(let i=0; i<count; i++) {
                 const a = (i / count) * Math.PI * 2;
                 const r = 7;
-                let mat, name = "generic";
-                
-                if (i === 0) { mat = new THREE.MeshBasicMaterial({ map: t1 }); name = "screen_v1"; }
-                else if (i === 1) { mat = new THREE.MeshBasicMaterial({ map: t2 }); name = "screen_v2"; }
-                else if (i === 2) { mat = new THREE.MeshBasicMaterial({ map: t3 }); name = "screen_v3"; }
-                else if (i === 3) { mat = new THREE.MeshBasicMaterial({ map: t4 }); name = "screen_v4"; }
-                else if (i === 4) { mat = new THREE.MeshBasicMaterial({ map: t5 }); name = "screen_v5"; }
-                else if (i === 5) { mat = new THREE.MeshBasicMaterial({ map: t6 }); name = "screen_v6"; }
-
-                const s = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.3), mat);
+                const s = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.3), new THREE.MeshBasicMaterial({ map: textures[i] }));
                 s.position.set(Math.cos(a)*r, 0.5, Math.sin(a)*r);
                 s.lookAt(0, 0.5, 0);
-                s.name = name;
+                s.name = "screen_v" + (i+1);
                 s.add(new THREE.LineSegments(new THREE.EdgesGeometry(s.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff })));
                 scene.add(s);
                 programScreens.push(s);
@@ -285,8 +245,8 @@
             interactableObjects = [];
             const anim = () => {
                 if (logoGroup.position.y < 12) {
-                    logoGroup.position.y += 0.3;
-                    startButton.position.y -= 0.3;
+                    logoGroup.position.y += 0.2;
+                    startButton.position.y -= 0.2;
                     requestAnimationFrame(anim);
                 } else {
                     logoGroup.visible = false; startButton.visible = false;
@@ -298,13 +258,12 @@
 
         function createMS3Logo() {
             logoGroup = new THREE.Group();
-            const sideMat = new THREE.MeshPhongMaterial({ color: 0x050505 });
+            const sideMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
             function createTex(l) {
                 const c = document.createElement('canvas'); const x = c.getContext('2d');
                 c.width = 512; c.height = 512;
-                const g = x.createLinearGradient(0,0,0,512); g.addColorStop(0,"#00ffff"); g.addColorStop(1,"#ff00ff");
-                x.fillStyle = g; x.fillRect(0,0,512,512);
-                x.fillStyle = "white"; x.font = "Bold 350px Arial"; x.textAlign = "center"; x.textBaseline = "middle";
+                x.fillStyle = "#00ffff"; x.fillRect(0,0,512,512);
+                x.fillStyle = "black"; x.font = "Bold 350px Arial"; x.textAlign = "center"; x.textBaseline = "middle";
                 x.fillText(l, 256, 256);
                 return new THREE.CanvasTexture(c);
             }
@@ -330,26 +289,27 @@
         }
 
         function onPointerDown(e) { onPointerDownPointerX = e.clientX; onPointerDownPointerY = e.clientY; onPointerDownLon = lon; onPointerDownLat = lat; }
-        function onPointerMove(e) { if (e.buttons > 0 && !hasGyro) { lon = (onPointerDownPointerX - e.clientX) * 0.1 + onPointerDownLon; lat = (e.clientY - onPointerDownPointerY) * 0.1 + onPointerDownLat; } }
+        function onPointerMove(e) { if (e.buttons > 0 && !hasGyro) { lon = (onPointerDownPointerX - e.clientX) * 0.15 + onPointerDownLon; lat = (e.clientY - onPointerDownPointerY) * 0.15 + onPointerDownLat; } }
         function toggleSplitScreen() { isSplitScreen = !isSplitScreen; onWindowResize(); document.getElementById('btn-vr').innerText = isSplitScreen ? "MODO NORMAL" : "MODO GAFAS VR"; }
         function onWindowResize() { 
-            const a = isSplitScreen ? (window.innerWidth/2)/window.innerHeight : window.innerWidth/window.innerHeight;
-            camera.aspect = a; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight);
+            const aspect = isSplitScreen ? (window.innerWidth/2)/window.innerHeight : window.innerWidth/window.innerHeight;
+            camera.aspect = aspect; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            if (hasGyro) camera.quaternion.copy(deviceQuaternion);
-            else {
+            if (hasGyro) {
+                camera.quaternion.copy(deviceQuaternion);
+            } else {
                 lat = Math.max(-85, Math.min(85, lat));
                 phi = THREE.MathUtils.degToRad(90 - lat); theta = THREE.MathUtils.degToRad(lon);
-                camera.lookAt(500 * Math.sin(phi) * Math.cos(theta), 500 * Math.cos(phi), 500 * Math.sin(phi) * Math.sin(theta));
+                camera.lookAt(Math.sin(phi)*Math.cos(theta), Math.cos(phi), Math.sin(phi)*Math.sin(theta));
             }
             if (logoGroup && logoGroup.visible) {
-                logoGroup.rotation.y += 0.003;
-                letterMeshes.forEach((m, idx) => m.rotation.y += 0.015 + (idx * 0.005));
+                logoGroup.rotation.y += 0.005;
+                letterMeshes.forEach((m, idx) => m.rotation.y += 0.01 + (idx * 0.005));
             }
-            starField.rotation.y += 0.0002;
+            starField.rotation.y += 0.0005;
             handleInteractions();
 
             if (isSplitScreen) {
