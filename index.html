@@ -3,433 +3,394 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MS3 VR TV - Multi Video 360</title>
+    <title>MS3 VR TV - Bloque 3D Neón</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', sans-serif; touch-action: none; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Orbitron', sans-serif; touch-action: none; }
         canvas { display: block; }
         
-        #ui-overlay {
+        #vr-toggle-ui {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 100;
-            text-align: center;
+            bottom: 30px;
+            right: 30px;
+            z-index: 1000;
         }
 
-        .vr-button {
-            padding: 20px 40px;
-            background: rgba(0, 255, 255, 0.2);
+        .cyber-button {
+            padding: 12px 24px;
+            background: rgba(0, 255, 255, 0.1);
             border: 2px solid #0ff;
             color: #0ff;
-            border-radius: 50px;
-            cursor: pointer;
-            backdrop-filter: blur(10px);
             font-weight: bold;
             text-transform: uppercase;
-            letter-spacing: 3px;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+            letter-spacing: 2px;
+            cursor: pointer;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 0 15px #0ff;
+            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
             transition: all 0.3s;
-            font-size: 18px;
         }
 
-        .vr-button:active {
-            transform: scale(0.95);
-            background: rgba(0, 255, 255, 0.4);
+        .cyber-button:hover {
+            background: rgba(0, 255, 255, 0.3);
+            box-shadow: 0 0 25px #0ff;
         }
 
         #hint {
             position: absolute;
-            bottom: 30px;
+            top: 20px;
             width: 100%;
             text-align: center;
-            color: rgba(255,255,255,0.8);
-            font-size: 14px;
-            pointer-events: none;
-            z-index: 10;
-            text-shadow: 0 0 8px #000;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        /* Estilo para el botón VR en la esquina cuando ya se ha entrado */
-        .corner-vr {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            padding: 10px 15px;
+            color: #0ff;
             font-size: 12px;
-            display: none;
+            pointer-events: none;
+            letter-spacing: 3px;
+            text-shadow: 0 0 5px #0ff;
         }
     </style>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <div id="ui-overlay">
-        <button class="vr-button" id="btn-start-exp">ENTRAR A LA EXPERIENCIA</button>
+    <div id="hint">MS3 SYSTEM ONLINE - CONTROL POR MOVIMIENTO ACTIVO</div>
+    
+    <div id="vr-toggle-ui">
+        <button class="cyber-button" id="btn-vr-mode">PARTIZAR / MODO VR</button>
     </div>
 
-    <div id="hint">Mueve tu celular para explorar el espacio</div>
-
     <script>
-        let scene, camera, renderer, starField, logoGroup, startButton, backButton;
-        let isSplitScreen = false;
-        let hasGyro = false;
+        let scene, camera, renderer, starField, logoGroup, startBtn3D;
+        let isSplitScreen = false, hasGyro = false, appStarted = false;
         let raycaster = new THREE.Raycaster();
         let interactableObjects = [];
-        let hoverTimer = 0;
-        let hoveredObject = null;
-        let appState = 'intro';
+        let hoverTimer = 0, hoveredObject = null;
         let programScreens = [];
-        let letterMeshes = [];
         
-        // Orientación y Sensores
-        let lon = 0, lat = 0;
+        // Sensores
         let deviceQuaternion = new THREE.Quaternion();
-        let worldQuaternion = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // Ajuste base para móviles
+        let worldQuaternion = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
-        // Videos y Texturas
-        let activeVideo = null;
-        let v1, v2, v3, v4, v5, v6;
-        let t1, t2, t3, t4, t5, t6;
-        let videoSphere;
-
-        const url1 = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-        const url2 = "uploaded:WhatsApp Video 2026-03-05 at 4.09.06 PM.mp4";
-        const url3 = "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4";
-        const url4 = "otro_video_generico.mp4"; 
-        const url5 = "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4";
-        const url6 = "video_vr_wetransfer.mp4"; 
+        // Media
+        let activeVideo = null, vSphere;
+        let videos = [], textures = [];
+        const urls = [
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            "uploaded:WhatsApp Video 2026-03-05 at 4.09.06 PM.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
+        ];
 
         // UI 3D
-        let crosshair3D, loadingRing3D;
+        let crosshair, loadingRing;
 
-        window.onload = function() {
+        window.onload = () => {
             init();
             setupMedia();
             animate();
             
-            const btnStart = document.getElementById('btn-start-exp');
-            btnStart.onclick = function() {
-                // Iniciar audio/video bloqueado por navegador
-                [v1, v2, v3, v4, v5, v6].forEach(v => {
-                    v.play().then(() => v.pause()).catch(() => {});
-                });
-
-                // Solicitar sensores
-                requestSensors();
-                
-                // Ocultar overlay inicial
-                document.getElementById('ui-overlay').style.display = 'none';
-                
-                // Si ya estamos listos, transicionar
-                if (appState === 'intro') {
-                    startTransition();
-                }
-
-                // Mostrar botón de alternar VR en la esquina
-                btnStart.classList.add('corner-vr');
-                btnStart.innerText = "MODO VR";
-                document.getElementById('ui-overlay').style.top = '40px';
-                document.getElementById('ui-overlay').style.left = 'auto';
-                document.getElementById('ui-overlay').style.right = '20px';
-                document.getElementById('ui-overlay').style.transform = 'none';
-                document.getElementById('ui-overlay').style.display = 'block';
-                
-                btnStart.onclick = toggleSplitScreen;
+            window.addEventListener('click', startAudioAndSensors, { once: true });
+            document.getElementById('btn-vr-mode').onclick = (e) => {
+                e.stopPropagation();
+                toggleVR();
             };
+        };
+
+        function startAudioAndSensors() {
+            videos.forEach(v => v.play().then(() => v.pause()).catch(() => {}));
+            requestSensors();
         }
 
         function requestSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(response => {
-                        if (response === 'granted') {
-                            window.addEventListener('deviceorientation', onDeviceOrientation, true);
-                        }
-                    })
-                    .catch(console.error);
+                DeviceOrientationEvent.requestPermission().then(res => {
+                    if (res === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, true);
+                });
             } else {
                 window.addEventListener('deviceorientation', onDeviceOrientation, true);
             }
         }
 
-        function setupMedia() {
-            v1 = createVideoElement(url1); t1 = new THREE.VideoTexture(v1);
-            v2 = createVideoElement(url2); t2 = new THREE.VideoTexture(v2);
-            v3 = createVideoElement(url3); t3 = new THREE.VideoTexture(v3);
-            v4 = createVideoElement(url4); t4 = new THREE.VideoTexture(v4);
-            v5 = createVideoElement(url5); t5 = new THREE.VideoTexture(v5);
-            v6 = createVideoElement(url6); t6 = new THREE.VideoTexture(v6);
-            
-            const sphereGeo = new THREE.SphereGeometry(500, 60, 40);
-            sphereGeo.scale(-1, 1, 1);
-            videoSphere = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
-            videoSphere.visible = false;
-            scene.add(videoSphere);
-        }
-
-        function createVideoElement(url) {
-            const v = document.createElement('video');
-            v.src = url;
-            v.crossOrigin = "anonymous";
-            v.loop = true;
-            v.muted = true;
-            v.playsInline = true;
-            v.setAttribute('webkit-playsinline', 'true');
-            v.load();
-            return v;
-        }
-
         function init() {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1100);
-            camera.rotation.reorder('YXZ');
-
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
+            // Espacio de estrellas
             const starGeo = new THREE.BufferGeometry();
-            const starVerts = [];
-            for (let i = 0; i < 8000; i++) {
-                starVerts.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
-            }
-            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 }));
+            const starPos = [];
+            for (let i = 0; i < 9000; i++) starPos.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
+            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x00ffff, size: 0.6, transparent: true, opacity: 0.8 }));
             scene.add(starField);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+            const p1 = new THREE.PointLight(0x00ffff, 2, 50); p1.position.set(5, 5, 5); scene.add(p1);
+            const p2 = new THREE.PointLight(0xff00ff, 2, 50); p2.position.set(-5, -5, 5); scene.add(p2);
+
             create3DUI();
-            createMS3Logo();
-            
-            backButton = createFuturisticButton("VOLVER", 0xff0055, { x: 0, y: -2, z: -4 }, "btn_back");
-            backButton.visible = false;
+            create3DWordLogo();
+            createStartButton();
 
             window.addEventListener('resize', onWindowResize);
-            
-            // Mouse/Touch fallback
-            document.addEventListener('pointermove', (e) => {
-                if (!hasGyro && e.buttons > 0) {
-                    lon += e.movementX * 0.1;
-                    lat -= e.movementY * 0.1;
-                }
-            });
         }
 
-        function createFuturisticButton(text, neonColor, pos, name) {
-            const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 0.1), new THREE.MeshPhongMaterial({ color: 0x000a1a, transparent: true, opacity: 0.7, emissive: neonColor, emissiveIntensity: 0.2 }));
-            group.add(body);
-            group.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: neonColor })));
+        // Crea las letras MS3 como un bloque unido con bordes de neón
+        function create3DWordLogo() {
+            logoGroup = new THREE.Group();
+            const loader = new THREE.FontLoader();
+            loader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (font) => {
+                const textStr = "MS3";
+                const textGeo = new THREE.TextGeometry(textStr, {
+                    font: font,
+                    size: 2.5,
+                    height: 0.8, // Grosor 3D
+                    curveSegments: 12,
+                    bevelEnabled: true,
+                    bevelThickness: 0.15,
+                    bevelSize: 0.05,
+                    bevelOffset: 0,
+                    bevelSegments: 5
+                });
+                
+                textGeo.center(); // Centrar toda la palabra para que rote sobre su eje medio
 
+                // Material del cuerpo (Oscuro/Metálico)
+                const bodyMat = new THREE.MeshPhongMaterial({ 
+                    color: 0x111111,
+                    emissive: 0x002222,
+                    shininess: 100,
+                    specular: 0x00ffff
+                });
+
+                // Material de los bordes (Neón)
+                const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+
+                const mesh = new THREE.Mesh(textGeo, bodyMat);
+                
+                // Añadir bordes de neón para mejor definición
+                const edges = new THREE.EdgesGeometry(textGeo);
+                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 }));
+                
+                // Pequeño resplandor interno
+                const glowMesh = new THREE.Mesh(textGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.15 }));
+                glowMesh.scale.multiplyScalar(1.02);
+
+                logoGroup.add(mesh, line, glowMesh);
+            });
+
+            logoGroup.position.set(0, 1.5, -9);
+            scene.add(logoGroup);
+        }
+
+        function createStartButton() {
+            const group = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.2, 0.3), new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.8 }));
+            const edges = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 3 }));
+            
+            // Efecto de resplandor para el botón
+            const glow = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.3, 0.1), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.1 }));
+            
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = 256; canvas.height = 64;
-            ctx.fillStyle = "white"; ctx.font = "Bold 30px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillText(text, 128, 32);
-            const textMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.45), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-            textMesh.position.z = 0.06;
-            group.add(textMesh);
+            canvas.width = 512; canvas.height = 128;
+            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 65px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.shadowColor = "#0ff"; ctx.shadowBlur = 20;
+            ctx.fillText("COMENZAR", 256, 64);
+            
+            const txt = new THREE.Mesh(new THREE.PlaneGeometry(4, 0.9), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+            txt.position.z = 0.2;
 
-            group.position.set(pos.x, pos.y, pos.z);
-            group.name = name;
+            group.add(body, edges, glow, txt);
+            group.position.set(0, -2.5, -8);
+            group.name = "btn_start";
+            startBtn3D = group;
             scene.add(group);
             interactableObjects.push(body);
-            body.userData.parentGroup = group;
-            return group;
+            body.userData.parent = group;
+        }
+
+        function setupMedia() {
+            urls.forEach(url => {
+                const v = document.createElement('video');
+                v.src = url; v.crossOrigin = "anonymous"; v.loop = true; v.muted = true; v.playsInline = true;
+                v.load();
+                videos.push(v);
+                textures.push(new THREE.VideoTexture(v));
+            });
+
+            const geo = new THREE.SphereGeometry(500, 60, 40);
+            geo.scale(-1, 1, 1);
+            vSphere = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+            vSphere.visible = false;
+            scene.add(vSphere);
         }
 
         function create3DUI() {
-            const uiGroup = new THREE.Group();
-            crosshair3D = new THREE.Mesh(new THREE.TorusGeometry(0.01, 0.001, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
-            loadingRing3D = new THREE.Mesh(new THREE.TorusGeometry(0.025, 0.003, 8, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0 }));
-            uiGroup.add(crosshair3D, loadingRing3D);
-            uiGroup.position.z = -1;
-            camera.add(uiGroup);
+            const group = new THREE.Group();
+            crosshair = new THREE.Mesh(new THREE.TorusGeometry(0.015, 0.001, 8, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 }));
+            loadingRing = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.003, 8, 32), new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0 }));
+            group.add(crosshair, loadingRing);
+            group.position.z = -1;
+            camera.add(group);
             scene.add(camera);
         }
 
         function handleInteractions() {
             raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
-            const intersects = raycaster.intersectObjects(interactableObjects);
+            const hits = raycaster.intersectObjects(interactableObjects);
 
-            if (intersects.length > 0) {
-                const mesh = intersects[0].object;
-                const parent = mesh.userData.parentGroup || mesh;
-                
-                if (hoveredObject !== parent) { hoveredObject = parent; hoverTimer = 0; }
-                hoverTimer += 1 / 60;
-                const progress = Math.min(hoverTimer / 1.5, 1);
-                
-                loadingRing3D.scale.set(progress, progress, 1);
-                loadingRing3D.material.opacity = 1;
+            if (hits.length > 0) {
+                const obj = hits[0].object.userData.parent || hits[0].object;
+                if (hoveredObject !== obj) { hoveredObject = obj; hoverTimer = 0; }
+                hoverTimer += 1/60;
+                const p = Math.min(hoverTimer / 1.5, 1);
+                loadingRing.scale.set(p, p, 1);
+                loadingRing.material.opacity = 1;
 
-                if (progress >= 1) {
-                    if (parent.name === "btn_back") exitVideoMode();
-                    else if (parent.name.startsWith("screen_v")) {
-                        const idx = parseInt(parent.name.replace("screen_v", ""));
-                        const vids = [v1, v2, v3, v4, v5, v6];
-                        const texs = [t1, t2, t3, t4, t5, t6];
-                        enterVideoMode(vids[idx-1], texs[idx-1]);
-                    }
+                if (p >= 1) {
+                    if (obj.name === "btn_start") executeStart();
+                    else if (obj.name === "btn_back") exitVideo();
+                    else if (obj.name.startsWith("scr_")) playVideo(parseInt(obj.name.split('_')[1]));
                     hoverTimer = 0;
                 }
             } else {
-                hoveredObject = null;
-                hoverTimer = 0;
-                loadingRing3D.material.opacity = 0;
+                hoveredObject = null; hoverTimer = 0;
+                loadingRing.material.opacity = 0;
             }
         }
 
-        function enterVideoMode(vid, tex) {
-            appState = 'video_vr';
-            activeVideo = vid;
-            interactableObjects = [backButton.children[0]];
-            videoSphere.material.map = tex;
-            videoSphere.visible = true;
-            backButton.visible = true;
-            programScreens.forEach(s => s.visible = false);
-            activeVideo.muted = false;
-            activeVideo.play().catch(console.error);
-            
-            let op = 0;
-            const fadeIn = () => { if(op < 1) { op += 0.05; videoSphere.material.opacity = op; requestAnimationFrame(fadeIn); } };
-            fadeIn();
-        }
-
-        function exitVideoMode() {
-            if (activeVideo) { activeVideo.pause(); activeVideo.muted = true; }
-            let op = 1;
-            const fadeOut = () => {
-                if(op > 0) { op -= 0.05; videoSphere.material.opacity = op; requestAnimationFrame(fadeOut); }
-                else { videoSphere.visible = false; backToPrograms(); }
-            };
-            fadeOut();
-        }
-
-        function backToPrograms() {
-            appState = 'production';
-            backButton.visible = false;
-            programScreens.forEach(s => s.visible = true);
-            interactableObjects = programScreens;
-        }
-
-        function startProduction() {
-            const count = 6;
-            const textures = [t1, t2, t3, t4, t5, t6];
-            for(let i=0; i<count; i++) {
-                const a = (i / count) * Math.PI * 2;
-                const r = 8;
-                const s = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.25), new THREE.MeshBasicMaterial({ map: textures[i] }));
-                s.position.set(Math.cos(a)*r, 0.5, Math.sin(a)*r);
-                s.lookAt(0, 0.5, 0);
-                s.name = "screen_v" + (i+1);
-                s.add(new THREE.LineSegments(new THREE.EdgesGeometry(s.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })));
-                scene.add(s);
-                programScreens.push(s);
-            }
-            interactableObjects = programScreens;
-            appState = 'production';
-        }
-
-        function startTransition() {
-            appState = 'transition';
+        function executeStart() {
+            appStarted = true;
+            interactableObjects = [];
             const anim = () => {
-                if (logoGroup.position.y < 15) {
-                    logoGroup.position.y += 0.25;
+                if (logoGroup.position.y < 40) {
+                    logoGroup.position.y += 0.5;
+                    startBtn3D.position.y -= 0.5;
                     requestAnimationFrame(anim);
                 } else {
-                    logoGroup.visible = false;
-                    startProduction();
+                    logoGroup.visible = false; startBtn3D.visible = false;
+                    showProduction();
                 }
             };
             anim();
         }
 
-        function createMS3Logo() {
-            logoGroup = new THREE.Group();
-            const sideMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
-            function createTex(l) {
-                const c = document.createElement('canvas'); const x = c.getContext('2d');
-                c.width = 256; c.height = 256;
-                x.fillStyle = "#00ffff"; x.fillRect(0,0,256,256);
-                x.fillStyle = "black"; x.font = "Bold 180px Arial"; x.textAlign = "center"; x.textBaseline = "middle";
-                x.fillText(l, 128, 128);
-                return new THREE.CanvasTexture(c);
+        function showProduction() {
+            const r = 10;
+            for(let i=0; i<6; i++) {
+                const a = (i/6) * Math.PI * 2;
+                const group = new THREE.Group();
+                const m = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.8), new THREE.MeshBasicMaterial({ map: textures[i] }));
+                const frame = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff }));
+                group.add(m, frame);
+                group.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+                group.lookAt(0, 0, 0);
+                group.name = `scr_${i}`;
+                scene.add(group);
+                programScreens.push(group);
+                interactableObjects.push(m);
+                m.userData.parent = group;
             }
-            ['M', 'S', '3'].forEach((l, i) => {
-                const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.4), [sideMat, sideMat, sideMat, sideMat, new THREE.MeshPhongMaterial({ map: createTex(l) }), sideMat]);
-                const container = new THREE.Group(); container.add(m); container.position.x = (i - 1) * 1.3;
-                logoGroup.add(container); letterMeshes.push(container);
-            });
-            logoGroup.position.set(0, 1, -6);
-            scene.add(logoGroup);
+        }
+
+        function playVideo(idx) {
+            activeVideo = videos[idx];
+            vSphere.material.map = textures[idx];
+            vSphere.visible = true;
+            programScreens.forEach(s => s.visible = false);
+            activeVideo.muted = false;
+            activeVideo.play();
+            
+            if (!scene.getObjectByName("btn_back")) {
+                const back = createFuturisticButton("VOLVER", 0xff00ff, {x:0, y:-3, z:-6}, "btn_back");
+                scene.add(back);
+            } else {
+                scene.getObjectByName("btn_back").visible = true;
+            }
+            interactableObjects = [scene.getObjectByName("btn_back").children[0]];
+
+            let o = 0;
+            const f = () => { if(o < 1) { o += 0.05; vSphere.material.opacity = o; requestAnimationFrame(f); } };
+            f();
+        }
+
+        function exitVideo() {
+            if (activeVideo) { activeVideo.pause(); activeVideo.muted = true; }
+            vSphere.visible = false;
+            scene.getObjectByName("btn_back").visible = false;
+            programScreens.forEach(s => s.visible = true);
+            interactableObjects = programScreens.map(s => s.children[0]);
+        }
+
+        function createFuturisticButton(text, color, pos, name) {
+            const group = new THREE.Group();
+            const b = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.7, 0.1), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.8 }));
+            const e = new THREE.LineSegments(new THREE.EdgesGeometry(b.geometry), new THREE.LineBasicMaterial({ color: color }));
+            const c = document.createElement('canvas'); const x = c.getContext('2d');
+            c.width = 256; c.height = 64;
+            x.fillStyle = color; x.font = "Bold 30px Orbitron"; x.textAlign = "center"; x.textBaseline = "middle";
+            x.fillText(text, 128, 32);
+            const t = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
+            t.position.z = 0.06;
+            group.add(b, e, t); group.position.set(pos.x, pos.y, pos.z); group.name = name;
+            b.userData.parent = group;
+            return group;
         }
 
         function onDeviceOrientation(e) {
             if (e.alpha !== null) {
                 hasGyro = true;
-                const alpha = THREE.MathUtils.degToRad(e.alpha);
-                const beta = THREE.MathUtils.degToRad(e.beta);
-                const gamma = THREE.MathUtils.degToRad(e.gamma);
-                const orient = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
-
-                const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
-                deviceQuaternion.setFromEuler(euler);
-                deviceQuaternion.multiply(worldQuaternion); // Ajustar para que el frente sea 0,0,0
-                deviceQuaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -orient));
+                const a = THREE.MathUtils.degToRad(e.alpha);
+                const b = THREE.MathUtils.degToRad(e.beta);
+                const g = THREE.MathUtils.degToRad(e.gamma);
+                const o = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
+                deviceQuaternion.setFromEuler(new THREE.Euler(b, a, -g, 'YXZ'));
+                deviceQuaternion.multiply(worldQuaternion);
+                deviceQuaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), -o));
             }
         }
 
-        function toggleSplitScreen() {
-            isSplitScreen = !isSplitScreen;
-            onWindowResize();
-        }
+        function toggleVR() { isSplitScreen = !isSplitScreen; onWindowResize(); }
 
-        function onWindowResize() { 
+        function onWindowResize() {
             const aspect = isSplitScreen ? (window.innerWidth/2)/window.innerHeight : window.innerWidth/window.innerHeight;
-            camera.aspect = aspect;
-            camera.updateProjectionMatrix();
+            camera.aspect = aspect; camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            
             if (hasGyro) {
-                camera.quaternion.slerp(deviceQuaternion, 0.1); // Suavizado de movimiento
-            } else {
-                lat = Math.max(-85, Math.min(85, lat));
-                const phi = THREE.MathUtils.degToRad(90 - lat);
-                const theta = THREE.MathUtils.degToRad(lon);
-                const target = new THREE.Vector3(
-                    500 * Math.sin(phi) * Math.cos(theta),
-                    500 * Math.cos(phi),
-                    500 * Math.sin(phi) * Math.sin(theta)
-                );
-                camera.lookAt(target);
+                camera.quaternion.slerp(deviceQuaternion, 0.15);
+            }
+            if (logoGroup && logoGroup.visible) {
+                // Rotación de todo el bloque MS3 junto
+                logoGroup.rotation.y += 0.015;
+                // Efecto de flotación suave
+                logoGroup.position.y = 1.5 + Math.sin(Date.now() * 0.001) * 0.15;
+            }
+            
+            if (startBtn3D && startBtn3D.visible) {
+                // Latido neón en el botón comenzar
+                const s = 1 + Math.sin(Date.now() * 0.003) * 0.03;
+                startBtn3D.scale.set(s, s, 1);
             }
 
-            if (logoGroup && logoGroup.visible) {
-                logoGroup.rotation.y += 0.005;
-                letterMeshes.forEach((m, idx) => m.rotation.y += 0.01 + (idx * 0.01));
-            }
-            
             starField.rotation.y += 0.0003;
             handleInteractions();
 
             if (isSplitScreen) {
                 const w = window.innerWidth / 2, h = window.innerHeight;
                 renderer.setScissorTest(true);
-                
-                renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
-                camera.translateX(-0.05); renderer.render(scene, camera); camera.translateX(0.05);
-                
-                renderer.setViewport(w, 0, w, h); renderer.setScissor(w, 0, w, h);
-                camera.translateX(0.05); renderer.render(scene, camera); camera.translateX(-0.05);
+                renderer.setViewport(0,0,w,h); renderer.setScissor(0,0,w,h);
+                camera.translateX(-0.06); renderer.render(scene, camera); camera.translateX(0.06);
+                renderer.setViewport(w,0,w,h); renderer.setScissor(w,0,w,h);
+                camera.translateX(0.06); renderer.render(scene, camera); camera.translateX(-0.06);
             } else {
                 renderer.setScissorTest(false);
                 renderer.render(scene, camera);
