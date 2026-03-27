@@ -3,17 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>MS3 VR TV - Panel Esférico</title>
+    <title>MS3 VR TV - Consola Pro con IA</title>
+    <!-- Librería Three.js para el motor 3D -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js" type="module"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js" type="module"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js" type="module"></script>
     <style>
         body { 
             margin: 0; 
             overflow: hidden; 
-            background-color: #000; 
+            background: #000;
             font-family: 'Orbitron', sans-serif; 
             touch-action: none; 
             -webkit-tap-highlight-color: transparent;
@@ -29,491 +26,356 @@
 
         .cyber-button {
             padding: 12px 24px;
-            background: rgba(0, 255, 255, 0.1);
-            border: 2px solid #0ff;
-            color: #0ff;
+            background: rgba(138, 43, 226, 0.15);
+            border: 2px solid #8a2be2;
+            color: #fff;
             font-weight: bold;
             text-transform: uppercase;
             letter-spacing: 2px;
             cursor: pointer;
-            backdrop-filter: blur(5px);
-            box-shadow: 0 0 15px #0ff;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 0 20px rgba(138, 43, 226, 0.6);
             clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
             transition: all 0.3s;
+            text-shadow: 0 0 10px #8a2be2;
         }
 
         #hint {
             position: absolute;
-            top: 20px;
-            width: 90%;
-            left: 5%;
+            top: 25px;
+            width: 100%;
             text-align: center;
-            color: #0ff;
-            font-size: 11px;
+            color: #bf7afc;
+            font-size: 14px;
             pointer-events: none;
-            letter-spacing: 1px;
-            text-shadow: 0 0 8px #0ff;
-            opacity: 0.9;
+            letter-spacing: 4px;
+            text-shadow: 0 0 12px #8a2be2;
             z-index: 2000;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        #ai-status {
+            position: absolute;
+            top: 60px;
+            width: 100%;
+            text-align: center;
+            color: #00ffff;
+            font-size: 12px;
+            z-index: 2000;
+            text-shadow: 0 0 8px #00ffff;
+            opacity: 0;
+            transition: opacity 0.3s;
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <div id="hint">SISTEMA MS3 - CONECTANDO...</div>
+    <div id="hint">BIENVENIDO A MS3</div>
+    <div id="ai-status">ESCUCHANDO...</div>
     
     <div id="vr-toggle-ui">
-        <button class="cyber-button" id="btn-vr-mode">MODO VR (DIVIDIR)</button>
+        <button class="cyber-button" id="btn-vr-mode">MODO VR</button>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ms3-vr-app';
+        const apiKey = ""; // La plataforma proporciona la clave automáticamente
+        const firebaseConfig = {
+            apiKey: "",
+            authDomain: "default-app.firebaseapp.com",
+            projectId: "default-app",
+            storageBucket: "default-app.appspot.com",
+            messagingSenderId: "0",
+            appId: "0"
+        };
 
-        let scene, camera, renderer, starField, logoGroup, startBtn3D, resetBtn3D, gamesBtn3D;
+        let auth = null;
+        try {
+            if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+            }
+        } catch (e) { console.error(e); }
+
+        let scene, camera, renderer, logoGroup, startBtn3D, keyboardGroup;
         let isSplitScreen = false, hasGyro = false, currentView = "HOME"; 
         let raycaster = new THREE.Raycaster();
         let interactableObjects = [];
         let hoverTimer = 0, hoveredObject = null;
-        let programScreens = [], gameScreens = [];
-        let currentUser = null;
-        
-        let mouseX = 0, mouseY = 0;
-        let targetRotationX = 0, targetRotationY = 0;
-        
+        let starSystems = [], programScreens = [], videos = [], textures = [];
+        let mouseX = 0, mouseY = 0, targetRotationX = 0, targetRotationY = 0;
         let deviceQuaternion = new THREE.Quaternion();
         let worldQuaternion = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+        let activeVideo = null, vSphere, crosshair, loadingRing;
 
-        let activeVideo = null, vSphere, gameContainer;
-        let videos = [], textures = [];
         const videoUrls = [
             "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
             "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
             "https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-            "https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-            "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
         ];
 
-        let gameTextures = [];
-        const gameData = [
-            { title: "ORBITAL SHOOTER", color1: "#ff00ff", color2: "#4400ff", id: 0 },
-            { title: "SPACE CATCHER", color1: "#00ffff", color2: "#0044ff", id: 1 },
-            { title: "NEON RUNNER", color1: "#ffff00", color2: "#ff4400", id: 2 },
-            { title: "VORTEX RACER", color1: "#00ff00", color2: "#004400", id: 3 },
-            { title: "CYBER QUEST", color1: "#ff0000", color2: "#440000", id: 4 },
-            { title: "GALAXY DEFENDER", color1: "#ffffff", color2: "#444444", id: 5 }
-        ];
+        // --- ASISTENTE DE IA ---
+        async function askAI() {
+            const statusEl = document.getElementById('ai-status');
+            statusEl.style.opacity = "1";
+            statusEl.innerText = "ESCUCHANDO...";
 
-        let crosshair, loadingRing;
+            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.lang = 'es-ES';
+            recognition.start();
 
-        async function initAuth() {
-            try { await signInAnonymously(auth); } catch (e) { console.error("Error Auth:", e); }
-        }
-
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                currentUser = user;
-                document.getElementById('hint').innerText = "SISTEMA MS3 - IDENTIDAD VERIFICADA";
-            }
-        });
-
-        window.onload = () => {
-            initAuth();
-            init();
-            setupMedia();
-            createGameTextures();
-            animate();
-            
-            const onFirstInteraction = () => {
-                startSystem();
-                window.removeEventListener('touchstart', onFirstInteraction);
-                window.removeEventListener('mousedown', onFirstInteraction);
-            };
-            window.addEventListener('touchstart', onFirstInteraction);
-            window.addEventListener('mousedown', onFirstInteraction);
-            window.addEventListener('mousemove', onMouseMove);
-
-            document.getElementById('btn-vr-mode').onclick = (e) => {
-                e.stopPropagation();
-                toggleVR();
-            };
-        };
-
-        function createGameTextures() {
-            gameData.forEach(game => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 512; canvas.height = 256;
-                const ctx = canvas.getContext('2d');
-                const grad = ctx.createLinearGradient(0, 0, 512, 256);
-                grad.addColorStop(0, game.color1);
-                grad.addColorStop(1, game.color2);
-                ctx.fillStyle = grad; ctx.fillRect(0, 0, 512, 256);
-                ctx.strokeStyle = "rgba(255,255,255,0.2)";
-                ctx.lineWidth = 2;
-                for(let i=0; i<512; i+=40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke(); }
-                ctx.fillStyle = "white"; ctx.font = "Bold 40px Orbitron"; ctx.textAlign = "center";
-                ctx.fillText(game.title, 256, 140);
-                gameTextures.push(new THREE.CanvasTexture(canvas));
-            });
-        }
-
-        async function startSystem() {
-            videos.forEach(v => { v.play().then(() => v.pause()).catch(() => {}); });
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            recognition.onresult = async (event) => {
+                const transcript = event.results[0][0].transcript;
+                statusEl.innerText = "PROCESANDO: " + transcript;
+                
                 try {
-                    const response = await DeviceOrientationEvent.requestPermission();
-                    if (response === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, true);
-                } catch (e) {}
-            } else {
-                window.addEventListener('deviceorientation', onDeviceOrientation, true);
-            }
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: transcript }] }],
+                            systemInstruction: { parts: [{ text: "Eres el asistente de IA de la consola MS3 VR TV. Responde de forma futurista, breve y técnica." }] }
+                        })
+                    });
+                    const data = await response.json();
+                    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Error en conexión neuronal.";
+                    
+                    statusEl.innerText = "HABLANDO...";
+                    await speakAI(aiText);
+                    statusEl.style.opacity = "0";
+                } catch (err) {
+                    statusEl.innerText = "ERROR DE SISTEMA";
+                    console.error(err);
+                }
+            };
+
+            recognition.onerror = () => {
+                statusEl.innerText = "NO TE HE OÍDO";
+                setTimeout(() => statusEl.style.opacity = "0", 2000);
+            };
         }
 
-        function onMouseMove(event) {
-            if (!hasGyro) {
-                mouseX = (event.clientX / window.innerWidth) * 2 - 1;
-                mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
-                targetRotationY = mouseX * Math.PI * 0.7; 
-                targetRotationX = mouseY * Math.PI * 0.35; 
-            }
+        async function speakAI(text) {
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `Say in a futuristic voice: ${text}` }] }],
+                        generationConfig: { 
+                            responseModalities: ["AUDIO"],
+                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } }
+                        }
+                    })
+                });
+                const result = await response.json();
+                const audioData = result.candidates[0].content.parts[0].inlineData.data;
+                
+                // Conversión de PCM16 a WAV (simplificada para ejecución directa)
+                const binaryString = atob(audioData);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+                
+                const blob = new Blob([createWavHeader(bytes.buffer, 24000), bytes.buffer], { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                await audio.play();
+            } catch (e) { console.error("TTS Error:", e); }
         }
+
+        function createWavHeader(buffer, sampleRate) {
+            const length = buffer.byteLength;
+            const header = new ArrayBuffer(44);
+            const view = new DataView(header);
+            const writeString = (offset, string) => { for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); };
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + length, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, length, true);
+            return header;
+        }
+
+        // --- LÓGICA 3D ---
+        window.onload = () => { init(); setupMedia(); animate(); };
 
         function init() {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            scene.fog = new THREE.FogExp2(0x0a001a, 0.0003);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
-            const starGeo = new THREE.BufferGeometry();
-            const starPos = [];
-            for (let i = 0; i < 10000; i++) starPos.push((Math.random()-0.5)*1500, (Math.random()-0.5)*1500, (Math.random()-0.5)*1500);
-            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-            starField = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x00ffff, size: 0.4, transparent: true, opacity: 0.6 }));
-            scene.add(starField);
-
-            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-            gameContainer = new THREE.Group();
-            scene.add(gameContainer);
+            createStars(60000, 0.4, 0.00005, 0x8a2be2, 4000);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.4));
             
             create3DUI();
-            create3DWordLogo();
+            createFuturisticLogo();
             createStartButton();
-            createLowerControls();
+            create3DKeyboard();
+            
             window.addEventListener('resize', onWindowResize);
+            window.addEventListener('mousemove', (e) => {
+                if(!hasGyro) {
+                    mouseX = (e.clientX/window.innerWidth)*2-1;
+                    mouseY = -(e.clientY/window.innerHeight)*2+1;
+                    targetRotationY = mouseX * 0.5; targetRotationX = mouseY * 0.3;
+                }
+            });
+            window.addEventListener('mousedown', () => {
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission();
+                }
+            });
+            document.getElementById('btn-vr-mode').onclick = () => { isSplitScreen = !isSplitScreen; onWindowResize(); };
         }
 
-        function create3DWordLogo() {
+        function createStars(count, size, speed, color, range) {
+            const geo = new THREE.BufferGeometry();
+            const pos = [];
+            for (let i = 0; i < count; i++) pos.push((Math.random()-0.5)*range, (Math.random()-0.5)*range, (Math.random()-0.5)*range);
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            const points = new THREE.Points(geo, new THREE.PointsMaterial({ size, color, transparent: true, opacity: 0.8 }));
+            scene.add(points);
+            starSystems.push({ mesh: points, speed });
+        }
+
+        function createFuturisticLogo() {
             logoGroup = new THREE.Group();
             const loader = new THREE.FontLoader();
             loader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (font) => {
-                const textGeo = new THREE.TextGeometry("MS3", {
-                    font: font, size: 2.8, height: 1.2, curveSegments: 12,
-                    bevelEnabled: true, bevelThickness: 0.2, bevelSize: 0.1
-                });
+                const textGeo = new THREE.TextGeometry("MS3", { font, size: 5, height: 2, curveSegments: 12 });
                 textGeo.center();
-                const bodyMat = new THREE.MeshPhongMaterial({ color: 0x0a0a0a, emissive: 0x004444, shininess: 100 });
-                const mesh = new THREE.Mesh(textGeo, bodyMat);
-                const edges = new THREE.LineSegments(new THREE.EdgesGeometry(textGeo), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 2 }));
-                logoGroup.add(mesh, edges);
+                const mesh = new THREE.Mesh(textGeo, new THREE.MeshPhongMaterial({ color: 0x000000, emissive: 0x110022 }));
+                const neon = new THREE.LineSegments(new THREE.EdgesGeometry(textGeo), new THREE.LineBasicMaterial({ color: 0x00ffff }));
+                logoGroup.add(mesh, neon);
             });
-            logoGroup.position.set(0, 2, -12);
+            logoGroup.position.set(0, 4, -15);
             scene.add(logoGroup);
         }
 
         function createStartButton() {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(6, 1.6, 0.5), new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.9 }));
-            const edges = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 3 }));
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = 512; canvas.height = 128;
-            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 70px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillText("COMENZAR", 256, 64);
-            const txt = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-            txt.position.z = 0.3;
-            group.add(body, edges, txt);
-            group.position.set(0, -3.5, -11);
-            group.name = "btn_start";
+            const body = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 1), new THREE.MeshPhongMaterial({ color: 0x111111 }));
+            const edge = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x00ffff }));
+            const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d'); ctx.fillStyle = "#00ffff"; ctx.font = "Bold 70px Arial"; ctx.textAlign="center"; ctx.fillText("INICIAR", 256, 80);
+            const txt = new THREE.Mesh(new THREE.PlaneGeometry(5, 1.2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+            txt.position.z = 0.55;
+            group.add(body, edge, txt);
+            group.position.set(0, -5, -12);
             startBtn3D = group;
             scene.add(group);
             interactableObjects.push(body);
-            body.userData.isStart = true;
+            body.userData = { isStart: true, originalZ: -12 };
         }
 
-        function updateLowerButtonText(button, text) {
-            const txtMesh = button.getObjectByName("text_mesh");
-            if (!txtMesh) return;
-            const canvas = txtMesh.material.map.image;
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = "#00ffff"; ctx.font = "Bold 80px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillText(text, 512, 128);
-            txtMesh.material.map.needsUpdate = true;
-        }
-
-        function createLowerControls() {
-            const shape = new THREE.Shape();
-            shape.moveTo(-5, -1.2); shape.lineTo(5, -1.2); shape.lineTo(4, 1.2); shape.lineTo(-4, 1.2); shape.lineTo(-5, -1.2);
-            const geo = new THREE.ShapeGeometry(shape);
-
-            const groupReset = new THREE.Group();
-            const bodyReset = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.85, emissive: 0x003333 }));
-            const edgesReset = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 4 }));
-            const canvasR = document.createElement('canvas'); canvasR.width = 1024; canvasR.height = 256;
-            const txtR = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvasR), transparent: true }));
-            txtR.position.z = 0.1; txtR.name = "text_mesh";
-            groupReset.add(bodyReset, edgesReset, txtR);
-            groupReset.position.set(-5, -18, -12);
-            groupReset.rotation.x = -Math.PI / 4; 
-            groupReset.visible = false;
-            resetBtn3D = groupReset;
-            scene.add(groupReset);
-            bodyReset.userData.isReset = true;
-            updateLowerButtonText(groupReset, "VOLVER AL INICIO");
-
-            const groupGames = new THREE.Group();
-            const bodyGames = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color: 0x000000, transparent: true, opacity: 0.85, emissive: 0x220033 }));
-            const edgesGames = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0xff00ff, linewidth: 4 }));
-            const canvasG = document.createElement('canvas'); canvasG.width = 1024; canvasG.height = 256;
-            const txtG = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvasG), transparent: true }));
-            txtG.position.z = 0.1; txtG.name = "text_mesh";
-            groupGames.add(bodyGames, edgesGames, txtG);
-            groupGames.position.set(5, -18, -12);
-            groupGames.rotation.x = -Math.PI / 4; 
-            groupGames.visible = false;
-            gamesBtn3D = groupGames;
-            scene.add(groupGames);
-            bodyGames.userData.isGames = true;
-            updateLowerButtonText(groupGames, "JUEGOS");
+        function create3DKeyboard() {
+            keyboardGroup = new THREE.Group();
+            const createKey = (x, z, label, type) => {
+                const group = new THREE.Group();
+                const body = new THREE.Mesh(new THREE.BoxGeometry(5.0, 1.8, 0.8), new THREE.MeshPhongMaterial({ color: 0x111111 }));
+                const edge = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x8a2be2 }));
+                const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+                const ctx = canvas.getContext('2d'); ctx.fillStyle = "#ffffff"; ctx.font = "Bold 80px Arial"; ctx.textAlign="center"; ctx.fillText(label, 256, 85);
+                const txt = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 1.3), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+                txt.position.z = 0.45;
+                group.add(body, edge, txt);
+                group.position.set(x, 0, z);
+                body.userData = { [type]: true, label: label, originalZ: z };
+                interactableObjects.push(body);
+                return group;
+            };
+            keyboardGroup.add(createKey(-6.0, 0, "INICIO", "isReset"));
+            keyboardGroup.add(createKey(0, 0, "IA", "isAI"));
+            keyboardGroup.add(createKey(6.0, 0, "JUEGOS", "isGames"));
+            keyboardGroup.position.set(0, -9.5, -10);
+            keyboardGroup.visible = false;
+            scene.add(keyboardGroup);
         }
 
         function setupMedia() {
             videoUrls.forEach(url => {
-                const v = document.createElement('video');
-                v.src = url; v.crossOrigin = "anonymous"; v.loop = true; v.muted = true; v.playsInline = true;
-                v.load(); videos.push(v); textures.push(new THREE.VideoTexture(v));
+                const v = document.createElement('video'); v.src = url; v.crossOrigin = "anonymous"; v.loop = true; v.muted = true; v.playsInline = true;
+                videos.push(v); textures.push(new THREE.VideoTexture(v));
             });
-            const geo = new THREE.SphereGeometry(35, 60, 40);
-            geo.scale(-1, 1, 1);
-            vSphere = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, side: THREE.BackSide }));
+            vSphere = new THREE.Mesh(new THREE.SphereGeometry(100, 32, 32).scale(-1,1,1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
             vSphere.visible = false;
             scene.add(vSphere);
         }
 
         function create3DUI() {
-            const group = new THREE.Group();
-            // Cursor central (Torus)
-            crosshair = new THREE.Mesh(
-                new THREE.TorusGeometry(0.015, 0.002, 8, 32), 
-                new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 })
-            );
-            // Aro de carga
-            loadingRing = new THREE.Mesh(
-                new THREE.TorusGeometry(0.025, 0.003, 8, 32), 
-                new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0 })
-            );
-            group.add(crosshair, loadingRing);
-            group.position.z = -1;
-            camera.add(group);
-            scene.add(camera);
+            crosshair = new THREE.Mesh(new THREE.RingGeometry(0.015, 0.018, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 }));
+            loadingRing = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.025, 32), new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0 }));
+            const ui = new THREE.Group(); ui.add(crosshair, loadingRing); ui.position.z = -1;
+            camera.add(ui); scene.add(camera);
         }
 
         function handleInteractions() {
             raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
             const hits = raycaster.intersectObjects(interactableObjects);
-            
             if (hits.length > 0) {
                 const hit = hits[0].object;
-                if (hoveredObject !== hit) { 
-                    hoveredObject = hit; 
-                    hoverTimer = 0; 
-                }
-                
+                if (hoveredObject !== hit) { hoveredObject = hit; hoverTimer = 0; }
                 hoverTimer += 1/60;
                 const p = Math.min(hoverTimer / 1.2, 1);
-                
-                // Efecto de crecimiento del cursor (Crosshair)
-                const targetScale = 1.8; // Escala máxima al apuntar
-                const currentScale = 1 + (p * (targetScale - 1));
-                crosshair.scale.set(currentScale, currentScale, 1);
-                crosshair.material.color.setHex(0xffffff); // Brillo blanco al apuntar
-                
-                // Aro de carga sigue creciendo
-                loadingRing.scale.set(p * 1.5, p * 1.5, 1);
                 loadingRing.material.opacity = 1;
-
+                loadingRing.scale.set(p * 1.5, p * 1.5, 1);
                 if (p >= 1) {
                     if (hit.userData.isStart) executeStart();
-                    else if (hit.userData.isReset) {
-                        if (currentView === "PROGRAMS") executeResetToHome();
-                        else if (currentView === "GAMES") showPrograms();
-                    }
-                    else if (hit.userData.isGames) showGames();
-                    else if (hit.userData.isBack) exitMedia();
-                    else if (hit.userData.gameId !== undefined) playVRGame(hit.userData.gameId);
-                    else if (hit.userData.videoId !== undefined) playVideo(hit.userData.videoId);
-                    
+                    if (hit.userData.isAI) askAI();
+                    if (hit.userData.isReset) location.reload();
+                    if (hit.userData.id !== undefined) playVideo(hit.userData.id);
+                    if (hit.userData.isBack) exitMedia();
                     hoverTimer = 0;
-                    loadingRing.material.opacity = 0;
-                    crosshair.scale.set(1, 1, 1);
                 }
-            } else {
-                hoveredObject = null;
-                hoverTimer = 0;
-                loadingRing.material.opacity = 0;
-                
-                // Retorno suave del cursor a su estado original
-                crosshair.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-                crosshair.material.color.lerp(new THREE.Color(0x00ffff), 0.1);
-            }
+            } else { hoveredObject = null; hoverTimer = 0; loadingRing.material.opacity = 0; }
         }
 
         function executeStart() {
-            currentView = "PROGRAMS";
-            startBtn3D.visible = false;
-            resetBtn3D.visible = true;
-            gamesBtn3D.visible = true;
-            logoGroup.position.set(0, 18, -25);
-            logoGroup.scale.set(0.7, 0.7, 0.7);
-            showPrograms();
-        }
-
-        function executeResetToHome() {
-            currentView = "HOME";
-            resetBtn3D.visible = false; gamesBtn3D.visible = false;
-            startBtn3D.visible = true;
-            clearContent();
-            logoGroup.position.set(0, 2, -12);
-            logoGroup.scale.set(1, 1, 1);
-            interactableObjects = [startBtn3D.children[0]];
-            document.getElementById('hint').innerText = "SISTEMA MS3 - VOLVIENDO AL INICIO";
-        }
-
-        function clearContent() {
-            programScreens.forEach(s => scene.remove(s));
-            gameScreens.forEach(s => scene.remove(s));
-            programScreens = []; gameScreens = [];
+            currentView = "PROGRAMS"; startBtn3D.visible = false;
+            logoGroup.position.set(0, 18, -35); logoGroup.scale.set(0.5, 0.5, 0.5);
+            keyboardGroup.visible = true; showPrograms();
         }
 
         function showPrograms() {
-            currentView = "PROGRAMS";
-            clearContent();
-            resetBtn3D.visible = true; gamesBtn3D.visible = true;
-            resetBtn3D.position.set(-5, -18, -12);
-            gamesBtn3D.position.set(5, -18, -12);
-            updateLowerButtonText(resetBtn3D, "VOLVER AL INICIO");
-            updateLowerButtonText(gamesBtn3D, "JUEGOS");
-            
-            const countPerRow = 12, rows = [-4, 4], radius = 25;
-            interactableObjects = [resetBtn3D.children[0], gamesBtn3D.children[0]];
-            
-            rows.forEach(yPos => {
-                for(let i=0; i<countPerRow; i++) {
-                    const angle = (i / countPerRow) * Math.PI * 2;
-                    const group = new THREE.Group();
-                    const geometry = new THREE.PlaneGeometry(10, 5.6); 
-                    const material = new THREE.MeshBasicMaterial({ map: textures[i % textures.length] });
-                    const mesh = new THREE.Mesh(geometry, material);
-                    const frame = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x00ffff }));
-                    group.add(mesh, frame);
-                    group.position.set(Math.cos(angle) * radius, yPos, Math.sin(angle) * radius);
-                    group.lookAt(0, yPos, 0);
-                    scene.add(group);
-                    programScreens.push(group);
-                    mesh.userData.videoId = i;
-                    interactableObjects.push(mesh);
-                }
-            });
-            document.getElementById('hint').innerText = "SECCIÓN PROGRAMAS - EXPLORA LOS VIDEOS";
-        }
-
-        function showGames() {
-            currentView = "GAMES";
-            clearContent();
-            gamesBtn3D.visible = false;
-            resetBtn3D.visible = true;
-            resetBtn3D.position.set(0, -18, -12);
-            updateLowerButtonText(resetBtn3D, "VOLVER A PROGRAMAS");
-            
-            const countPerRow = 12, radius = 22;
-            interactableObjects = [resetBtn3D.children[0]];
-            
-            for(let i=0; i<countPerRow; i++) {
-                const angle = (i / countPerRow) * Math.PI * 2;
+            const r = 22; const count = 10;
+            for (let i = 0; i < count; i++) {
+                const angle = (i / count) * Math.PI * 2;
                 const group = new THREE.Group();
-                const geometry = new THREE.PlaneGeometry(9, 5); 
-                const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: gameTextures[i % gameTextures.length] }));
-                const frame = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0xff00ff }));
-                group.add(mesh, frame);
-                group.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-                group.lookAt(0, 0, 0);
-                scene.add(group);
-                gameScreens.push(group);
-                mesh.userData.gameId = i;
-                interactableObjects.push(mesh);
+                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(8, 4.5), new THREE.MeshBasicMaterial({ map: textures[i % textures.length] }));
+                group.add(mesh); group.position.set(Math.cos(angle)*r, 0, Math.sin(angle)*r); group.lookAt(0, 0, 0);
+                scene.add(group); programScreens.push(group);
+                mesh.userData.id = i; interactableObjects.push(mesh);
             }
-            document.getElementById('hint').innerText = "SECCIÓN JUEGOS - SELECCIONA TU DESAFÍO";
         }
 
-        function playVRGame(id) {
+        function playVideo(id) {
             currentView = "PLAYING";
-            clearContent();
-            resetBtn3D.visible = false; gamesBtn3D.visible = false; logoGroup.visible = false;
-            const env = new THREE.Mesh(new THREE.TorusKnotGeometry(45, 2, 150, 20), new THREE.MeshPhongMaterial({ color: 0x8800ff, wireframe: true }));
-            env.name = "game_env"; scene.add(env);
-            
-            const backBtn = new THREE.Mesh(new THREE.BoxGeometry(6, 1.5, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0044 }));
-            backBtn.position.set(0, -6, -14);
-            backBtn.userData.isBack = true;
-            scene.add(backBtn);
-            interactableObjects = [backBtn];
-        }
-
-        function playVideo(idx) {
-            currentView = "PLAYING";
-            activeVideo = videos[idx % textures.length];
-            vSphere.material.map = textures[idx % textures.length];
+            activeVideo = videos[id % textures.length];
+            vSphere.material.map = textures[id % textures.length];
             vSphere.visible = true; vSphere.material.opacity = 1;
-            logoGroup.visible = false; resetBtn3D.visible = false; gamesBtn3D.visible = false;
+            logoGroup.visible = false; keyboardGroup.visible = false;
             activeVideo.muted = false; activeVideo.play();
-            
-            const backBtn = new THREE.Mesh(new THREE.BoxGeometry(7, 1.4, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0044 }));
-            backBtn.position.set(0, -8, -18);
-            backBtn.userData.isBack = true;
-            scene.add(backBtn);
-            interactableObjects = [backBtn];
+            const back = new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 0.2), new THREE.MeshBasicMaterial({ color: 0xff0044 }));
+            back.position.set(0, -10, -15); back.userData.isBack = true;
+            scene.add(back); interactableObjects = [back];
         }
 
-        function exitMedia() {
-            if (activeVideo) { activeVideo.pause(); activeVideo.muted = true; }
-            vSphere.visible = false; logoGroup.visible = true;
-            const env = scene.getObjectByName("game_env"); if(env) scene.remove(env);
-            interactableObjects.forEach(obj => { if(obj.userData.isBack) scene.remove(obj); });
-            if (currentView === "PLAYING") showGames(); else showPrograms();
-        }
-
-        function onDeviceOrientation(e) {
-            if (e.alpha !== null) {
-                hasGyro = true;
-                const a = THREE.MathUtils.degToRad(e.alpha);
-                const b = THREE.MathUtils.degToRad(e.beta);
-                const g = THREE.MathUtils.degToRad(e.gamma);
-                deviceQuaternion.setFromEuler(new THREE.Euler(b, a, -g, 'YXZ'));
-                deviceQuaternion.multiply(worldQuaternion);
-            }
-        }
-
-        function toggleVR() { isSplitScreen = !isSplitScreen; onWindowResize(); }
+        function exitMedia() { location.reload(); }
 
         function onWindowResize() {
             const aspect = isSplitScreen ? (window.innerWidth/2)/window.innerHeight : window.innerWidth/window.innerHeight;
@@ -523,26 +385,21 @@
 
         function animate() {
             requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
             if (hasGyro) camera.quaternion.slerp(deviceQuaternion, 0.1);
-            else {
-                camera.rotation.y += (targetRotationY - camera.rotation.y) * 0.05;
-                camera.rotation.x += (targetRotationX - camera.rotation.x) * 0.05;
-            }
-            if (logoGroup && logoGroup.visible) logoGroup.rotation.y += 0.015; 
-            starField.rotation.y += 0.00015;
+            else { camera.rotation.y += (targetRotationY - camera.rotation.y)*0.05; camera.rotation.x += (targetRotationX - camera.rotation.x)*0.05; }
+            logoGroup.rotation.y += 0.01;
+            starSystems.forEach(s => s.mesh.rotation.y += s.speed);
             handleInteractions();
-
             if (isSplitScreen) {
-                const w = window.innerWidth / 2, h = window.innerHeight;
+                const w = window.innerWidth/2, h = window.innerHeight;
                 renderer.setScissorTest(true);
                 renderer.setViewport(0,0,w,h); renderer.setScissor(0,0,w,h);
-                camera.translateX(-0.05); renderer.render(scene, camera); camera.translateX(0.05);
+                camera.position.x = -0.05; renderer.render(scene, camera);
                 renderer.setViewport(w,0,w,h); renderer.setScissor(w,0,w,h);
-                camera.translateX(0.05); renderer.render(scene, camera); camera.translateX(-0.05);
-            } else {
-                renderer.setScissorTest(false);
-                renderer.render(scene, camera);
-            }
+                camera.position.x = 0.05; renderer.render(scene, camera);
+                camera.position.x = 0;
+            } else { renderer.setScissorTest(false); renderer.render(scene, camera); }
         }
     </script>
 </body>
